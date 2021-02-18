@@ -9,35 +9,15 @@ def main():
     fullpath_start_dir, regex = get_cli_arguments()
     repos = get_repos(fullpath_start_dir, regex)
 
-    git_branch_procs = []
-    for repo in repos:
-        git_branch_proc = git_branch(repo.fullpath)
-        git_branch_procs.append(git_branch_proc)
+    git_commander = GitCommander(repos)
+    git_commander.get_current_branches()
+    git_commander.get_upstream_branches()
+    git_commander.get_commits_behind()
 
-    git_upstream_procs = []
-    for repo, branch_proc in zip(repos, git_branch_procs):
-        out, _ = branch_proc.communicate()
-        repo.current_branch = out.decode().strip()
-        git_upstream_proc = git_upstream_branch(repo.fullpath, repo.current_branch)
-        git_upstream_procs.append(git_upstream_proc)
-
-    for repo, upstream_branch_proc in zip(repos, git_upstream_procs):
-        out, _ = upstream_branch_proc.communicate()
-        repo.upstream_branch = out.decode().strip()  # how about no upstream branch?
-        # print("REPO UPSTREAM BRANCH:", repo.upstream_branch)
-
-    git_commits_behind_procs = []
-    for repo in repos:
-        git_commits_behind_proc = git_commits_behind(repo.fullpath, repo.current_branch, repo.upstream_branch)
-        git_commits_behind_procs.append(git_commits_behind_proc)
-
-    for repo, proc in zip(repos, git_commits_behind_procs):
-        out, _ = proc.communicate()
-        repo.commits_behind = out.decode().strip()  # how about no upstream branch?
-
-    # how about commits ahead?
-    print(f"{Style.BLUE}{Style.UNDERLINE}{'REPOSITORY':<41}{'BRANCH':<51}COMMITS BEHIND{Style.RESET}")
-    for repo in repos:
+    print(
+        f"{Style.BLUE}{Style.UNDERLINE}{'REPOSITORY':<41}{'BRANCH':<51}COMMITS BEHIND{Style.RESET}"
+    )
+    for repo in git_commander.repos:
         print(repo)
 
 
@@ -79,47 +59,81 @@ def is_git_repo(fullpath):
     return ".git" in os.listdir(fullpath)
 
 
-def git_branch(repo_fullpath):
-    proc = subprocess.Popen(
-        ['git', 'branch', '--show-current'],
-        cwd=repo_fullpath,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE
-    )
-    return proc
+class GitCommander:
 
+    def __init__(self, repos):
+        self.repos = repos
 
-def git_upstream_branch(repo_fullpath, current_branch):
-    proc = subprocess.Popen(
-        ['git', 'rev-parse', '--abbrev-ref', current_branch + '@{upstream}'],
-        cwd=repo_fullpath,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE
-    )
-    return proc
+    def get_current_branches(self):
+        git_procs = []
+        for repo in self.repos:
+            git_proc = GitCommander.proc_git_branch(repo.fullpath)
+            git_procs.append(git_proc)
 
+        for repo, git_proc in zip(self.repos, git_procs):
+            out, _ = git_proc.communicate()
+            repo.current_branch = out.decode().strip()
 
-def git_commits_behind(repo_fullpath, current_branch, upstream_branch):
-    proc = subprocess.Popen(
-        ['git', 'rev-list', current_branch + '...' + upstream_branch, '--count'],
-        cwd=repo_fullpath,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE
-    )
-    return proc
+    def get_upstream_branches(self):
+        git_procs = []
+        for repo in self.repos:
+            git_proc = GitCommander.proc_git_upstream_branch(
+                repo.fullpath, repo.current_branch
+            )
+            git_procs.append(git_proc)
 
+        for repo, git_proc in zip(self.repos, git_procs):
+            out, _ = git_proc.communicate()
+            repo.upstream_branch = out.decode().strip()  # how about no upstream branch?
+            # print("REPO UPSTREAM BRANCH:", repo.upstream_branch)
 
-class Style:
-    BLACK = '\033[30m'
-    RED = '\033[31m'
-    GREEN = '\033[32m'
-    YELLOW = '\033[33m'
-    BLUE = '\033[34m'
-    MAGENTA = '\033[35m'
-    CYAN = '\033[36m'
-    WHITE = '\033[37m'
-    UNDERLINE = '\033[4m'
-    RESET = '\033[0m'
+    def get_commits_behind(self):
+        git_procs = []
+        for repo in self.repos:
+            git_proc = GitCommander.proc_git_commits_behind(
+                repo.fullpath, repo.current_branch, repo.upstream_branch
+            )
+            git_procs.append(git_proc)
+
+        for repo, git_proc in zip(self.repos, git_procs):
+            out, _ = git_proc.communicate()
+            repo.commits_behind = (
+                out.decode().strip()
+            )
+
+        # how about no upstream branch? gives 0, not correct
+        # how about commits ahead?
+        # git rev-list --left-right --count main...origin/main
+
+    @classmethod
+    def proc_git_branch(cls, repo_fullpath):
+        proc = subprocess.Popen(
+            ["git", "branch", "--show-current"],
+            cwd=repo_fullpath,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+        )
+        return proc
+
+    @classmethod
+    def proc_git_upstream_branch(cls, repo_fullpath, current_branch):
+        proc = subprocess.Popen(
+            ["git", "rev-parse", "--abbrev-ref", current_branch + "@{upstream}"],
+            cwd=repo_fullpath,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+        )
+        return proc
+
+    @classmethod
+    def proc_git_commits_behind(cls, repo_fullpath, current_branch, upstream_branch):
+        proc = subprocess.Popen(
+            ["git", "rev-list", current_branch + "..." + upstream_branch, "--count"],
+            cwd=repo_fullpath,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+        )
+        return proc
 
 
 class GitRepo:
@@ -148,6 +162,22 @@ class GitRepo:
 
     def __repr__(self):
         return f"GitRepo(fullpath={self.fullpath}, name={self.name})"
+
+
+class Style:
+    BLACK = "\033[30m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+    WHITE = "\033[37m"
+    UNDERLINE = "\033[4m"
+    RESET = "\033[0m"
+
+
+# table formatter class with default format?
 
 
 if __name__ == "__main__":
