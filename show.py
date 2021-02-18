@@ -1,13 +1,44 @@
 import argparse
 import os
 import re
+import subprocess
 import sys
 
 
 def main():
     fullpath_start_dir, regex = get_cli_arguments()
-    dir_names = get_directories(fullpath_start_dir, regex)
-    print(dir_names)
+    repos = get_repos(fullpath_start_dir, regex)
+
+    git_branch_procs = []
+    for repo in repos:
+        git_branch_proc = git_branch(repo.fullpath)
+        git_branch_procs.append(git_branch_proc)
+
+    git_upstream_procs = []
+    for repo, branch_proc in zip(repos, git_branch_procs):
+        out, _ = branch_proc.communicate()
+        repo.current_branch = out.decode().strip()
+        git_upstream_proc = git_upstream_branch(repo.fullpath, repo.current_branch)
+        git_upstream_procs.append(git_upstream_proc)
+
+    for repo, upstream_branch_proc in zip(repos, git_upstream_procs):
+        out, _ = upstream_branch_proc.communicate()
+        repo.upstream_branch = out.decode().strip()  # how about no upstream branch?
+        # print("REPO UPSTREAM BRANCH:", repo.upstream_branch)
+
+    git_commits_behind_procs = []
+    for repo in repos:
+        git_commits_behind_proc = git_commits_behind(repo.fullpath, repo.current_branch, repo.upstream_branch)
+        git_commits_behind_procs.append(git_commits_behind_proc)
+
+    for repo, proc in zip(repos, git_commits_behind_procs):
+        out, _ = proc.communicate()
+        repo.commits_behind = out.decode().strip()  # how about no upstream branch?
+
+    # how about commits ahead?
+    print(f"{Style.BLUE}{Style.UNDERLINE}{'REPOSITORY':<41}{'BRANCH':<51}COMMITS BEHIND{Style.RESET}")
+    for repo in repos:
+        print(repo)
 
 
 def get_cli_arguments():
@@ -18,27 +49,64 @@ def get_cli_arguments():
     return os.path.normpath(args.dir), args.reg
 
 
-def get_directories(start_directory, regex):
-    # names - filtering
-    # fullpaths - necessary for git operations
-    directories = [
-        file_or_dir for file_or_dir in os.listdir(start_directory)
-        if os.path.isdir(os.path.join(start_directory, file_or_dir))
-    ]
+def get_repos(fullpath_start_dir, regex):
+    directories = {
+        dirname: os.path.join(fullpath_start_dir, dirname)
+        for dirname in os.listdir(fullpath_start_dir)
+        if os.path.isdir(os.path.join(fullpath_start_dir, dirname))
+    }
+
     if regex:
         try:
             pattern = re.compile(regex)
         except:
-            print("Invalid regex!")
+            print(f"{Style.RED}Invalid regex!{Style.RESET}")
             sys.exit(1)
-        directories = [dir for dir in directories if pattern.search(dir)]
+        directories = {
+            dirname: fullpath
+            for dirname, fullpath in directories.items()
+            if pattern.search(dirname)
+        }
 
-    return directories
+    return [
+        GitRepo(dirname, fullpath)
+        for dirname, fullpath in directories.items()
+        if is_git_repo(fullpath)
+    ]
 
 
 def is_git_repo(fullpath):
-    # ".git" in
-    return True
+    return ".git" in os.listdir(fullpath)
+
+
+def git_branch(repo_fullpath):
+    proc = subprocess.Popen(
+        ['git', 'branch', '--show-current'],
+        cwd=repo_fullpath,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE
+    )
+    return proc
+
+
+def git_upstream_branch(repo_fullpath, current_branch):
+    proc = subprocess.Popen(
+        ['git', 'rev-parse', '--abbrev-ref', current_branch + '@{upstream}'],
+        cwd=repo_fullpath,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE
+    )
+    return proc
+
+
+def git_commits_behind(repo_fullpath, current_branch, upstream_branch):
+    proc = subprocess.Popen(
+        ['git', 'rev-list', current_branch + '...' + upstream_branch, '--count'],
+        cwd=repo_fullpath,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE
+    )
+    return proc
 
 
 class Style:
@@ -55,12 +123,13 @@ class Style:
 
 
 class GitRepo:
-    def __init__(self, fullpath):
+    def __init__(self, name, fullpath):
         self.fullpath = fullpath
-        self.name = os.path.dirname(fullpath)
+        self.name = name
         self.current_branch = ""
         self.upstream_branch = ""
         self.commits_behind = ""
+        self.has_upstream = True
 
     def __str__(self):
         if not self.commits_behind:
@@ -76,6 +145,9 @@ class GitRepo:
             f"{self.current_branch:<50} "
             f"{self.commits_behind}{Style.RESET}"
         )
+
+    def __repr__(self):
+        return f"GitRepo(fullpath={self.fullpath}, name={self.name})"
 
 
 if __name__ == "__main__":
