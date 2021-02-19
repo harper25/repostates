@@ -84,18 +84,24 @@ class GitCommander:
 
         for repo, git_proc in zip(self.repos, git_procs):
             out, _ = git_proc.communicate()
-            repo.upstream_branch = out.decode().strip()  # how about no upstream branch?
+            upstream = out.decode().strip()
+            if upstream:
+                repo.upstream_branch = upstream
+            else:
+                repo.upstream_branch = False  # how about no upstream branch?
+                repo.commits_behind = "N/A"
             # print("REPO UPSTREAM BRANCH:", repo.upstream_branch)
 
     def get_commits_behind(self):
         git_procs = []
-        for repo in self.repos:
+        repos_with_upstream = [repo for repo in self.repos if repo.upstream_branch]
+        for repo in repos_with_upstream:
             git_proc = GitCommander.proc_git_commits_behind(
                 repo.fullpath, repo.current_branch, repo.upstream_branch
             )
             git_procs.append(git_proc)
 
-        for repo, git_proc in zip(self.repos, git_procs):
+        for repo, git_proc in zip(repos_with_upstream, git_procs):
             out, _ = git_proc.communicate()
             repo.commits_behind = (
                 out.decode().strip()
@@ -122,6 +128,7 @@ class GitCommander:
             cwd=repo_fullpath,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
         return proc
 
@@ -146,7 +153,7 @@ class GitRepo:
         self.has_upstream = True
 
     def __str__(self):
-        if not self.commits_behind:
+        if not self.commits_behind or not self.upstream_branch:
             color = Style.YELLOW
         elif int(self.commits_behind) == 0:
             color = Style.GREEN
