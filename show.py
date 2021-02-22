@@ -12,11 +12,10 @@ def main():
     git_commander = GitCommander(repos)
     git_commander.get_current_branches()
     git_commander.get_upstream_branches()
-    git_commander.get_commits_behind()
+    git_commander.get_commits_state()
 
-    print(
-        f"{Style.BLUE}{Style.UNDERLINE}{'REPOSITORY':<41}{'BRANCH':<51}COMMITS BEHIND{Style.RESET}"
-    )
+    print(f"\n{Style.BLUE}{'REPOSITORY':<40}{'BRANCH':<50}COMMITS{Style.RESET}")
+    print(f"{Style.BLUE}{Style.UNDERLINE}{'':<40}{'':<50}AHEAD/BEHIND{Style.RESET}")
     for repo in git_commander.repos:
         print(repo)
 
@@ -60,7 +59,6 @@ def is_git_repo(fullpath):
 
 
 class GitCommander:
-
     def __init__(self, repos):
         self.repos = repos
 
@@ -77,39 +75,34 @@ class GitCommander:
     def get_upstream_branches(self):
         git_procs = []
         for repo in self.repos:
-            git_proc = GitCommander.proc_git_upstream_branch(
-                repo.fullpath, repo.current_branch
-            )
+            git_proc = GitCommander.proc_git_upstream_branch(repo.fullpath, repo.current_branch)
             git_procs.append(git_proc)
 
         for repo, git_proc in zip(self.repos, git_procs):
             out, _ = git_proc.communicate()
-            upstream = out.decode().strip()
-            if upstream:
-                repo.upstream_branch = upstream
+            output = out.decode().strip()
+            code = git_proc.returncode
+            if code == 0:
+                repo.upstream_branch = output
             else:
-                repo.upstream_branch = False  # how about no upstream branch?
+                repo.commits_ahead = "N/A"
                 repo.commits_behind = "N/A"
-            # print("REPO UPSTREAM BRANCH:", repo.upstream_branch)
 
-    def get_commits_behind(self):
+    def get_commits_state(self):
         git_procs = []
         repos_with_upstream = [repo for repo in self.repos if repo.upstream_branch]
         for repo in repos_with_upstream:
-            git_proc = GitCommander.proc_git_commits_behind(
+            git_proc = GitCommander.proc_git_commits_state(
                 repo.fullpath, repo.current_branch, repo.upstream_branch
             )
             git_procs.append(git_proc)
 
         for repo, git_proc in zip(repos_with_upstream, git_procs):
             out, _ = git_proc.communicate()
-            repo.commits_behind = (
-                out.decode().strip()
-            )
-
-        # how about no upstream branch? gives 0, not correct
-        # how about commits ahead?
-        # git rev-list --left-right --count main...origin/main
+            output = out.decode().strip()
+            ahead, behind = output.split()
+            repo.commits_ahead = int(ahead)
+            repo.commits_behind = int(behind)
 
     @classmethod
     def proc_git_branch(cls, repo_fullpath):
@@ -133,9 +126,15 @@ class GitCommander:
         return proc
 
     @classmethod
-    def proc_git_commits_behind(cls, repo_fullpath, current_branch, upstream_branch):
+    def proc_git_commits_state(cls, repo_fullpath, current_branch, upstream_branch):
         proc = subprocess.Popen(
-            ["git", "rev-list", current_branch + "..." + upstream_branch, "--count"],
+            [
+                "git",
+                "rev-list",
+                "--left-right",
+                "--count",
+                current_branch + "..." + upstream_branch,
+            ],
             cwd=repo_fullpath,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -149,21 +148,24 @@ class GitRepo:
         self.name = name
         self.current_branch = ""
         self.upstream_branch = ""
+        self.commits_ahead = ""
         self.commits_behind = ""
-        self.has_upstream = True
+
+        # self._color = ""  # property?
 
     def __str__(self):
-        if not self.commits_behind or not self.upstream_branch:
+        if not self.upstream_branch:
             color = Style.YELLOW
-        elif int(self.commits_behind) == 0:
+        elif self.commits_behind == 0 and self.commits_ahead == 0:
             color = Style.GREEN
-        elif int(self.commits_behind) > 0:
+        elif self.commits_behind > 0:
             color = Style.RED
         else:
             color = Style.YELLOW
         return (
-            f"{color}{self.name:<40} "
-            f"{self.current_branch:<50} "
+            f"{color}{self.name:<40}"
+            f"{self.current_branch:<50}"
+            f"{self.commits_ahead:<4}"
             f"{self.commits_behind}{Style.RESET}"
         )
 
