@@ -9,9 +9,17 @@ def main():
     fullpath_start_dir, regex = get_cli_arguments()
     repos = get_repos(fullpath_start_dir, regex)
 
+    if not repos:
+        print("No repos found!")
+        return
+
     git_commander = GitCommander(repos)
+    print("Preparation...")
     git_commander.get_current_branches()
+    print("Fetching...")
+    git_commander.get_fetched_branches()
     git_commander.get_upstream_branches()
+    print("Gathering state...")
     git_commander.get_commits_state()
 
     print(f"\n{Style.BLUE}{'REPOSITORY':<40}{'BRANCH':<50}COMMITS{Style.RESET}")
@@ -22,8 +30,15 @@ def main():
 
 def get_cli_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-d", "--dir", help="Directory", default=os.getcwd())
-    parser.add_argument("-r", "--reg", help="Regex", default=None)
+    parser.add_argument(
+        "-d",
+        "--dir",
+        help="directory with your git repositories, defaults to the current directory",
+        default=os.getcwd(),
+    )
+    parser.add_argument(
+        "-r", "--reg", help="regex for filtering repositories to show", default=None
+    )
     args = parser.parse_args()
     return os.path.normpath(args.dir), args.reg
 
@@ -62,6 +77,10 @@ class GitCommander:
     def __init__(self, repos):
         self.repos = repos
 
+    @property
+    def repos_with_upstream(self):
+        return [repo for repo in self.repos if repo.has_upstream]
+
     def get_current_branches(self):
         git_procs = []
         for repo in self.repos:
@@ -72,17 +91,29 @@ class GitCommander:
             out, _ = git_proc.communicate()
             repo.current_branch = out.decode().strip()
 
-    def get_upstream_branches(self):
+    def get_fetched_branches(self):
         git_procs = []
         for repo in self.repos:
-            git_proc = GitCommander.proc_git_upstream_branch(repo.fullpath, repo.current_branch)
+            git_proc = GitCommander.proc_git_fetch_branch(repo.fullpath, repo.current_branch)
             git_procs.append(git_proc)
 
         for repo, git_proc in zip(self.repos, git_procs):
+            _, _ = git_proc.communicate()
+            repo.has_upstream = git_proc.returncode == 0
+            if not repo.has_upstream:
+                repo.commits_ahead = "N/A"
+                repo.commits_behind = "N/A"
+
+    def get_upstream_branches(self):
+        git_procs = []
+        for repo in self.repos_with_upstream:
+            git_proc = GitCommander.proc_git_upstream_branch(repo.fullpath, repo.current_branch)
+            git_procs.append(git_proc)
+
+        for repo, git_proc in zip(self.repos_with_upstream, git_procs):
             out, _ = git_proc.communicate()
             output = out.decode().strip()
-            code = git_proc.returncode
-            if code == 0:
+            if git_proc.returncode == 0:
                 repo.upstream_branch = output
             else:
                 repo.commits_ahead = "N/A"
@@ -90,14 +121,13 @@ class GitCommander:
 
     def get_commits_state(self):
         git_procs = []
-        repos_with_upstream = [repo for repo in self.repos if repo.upstream_branch]
-        for repo in repos_with_upstream:
+        for repo in self.repos_with_upstream:
             git_proc = GitCommander.proc_git_commits_state(
                 repo.fullpath, repo.current_branch, repo.upstream_branch
             )
             git_procs.append(git_proc)
 
-        for repo, git_proc in zip(repos_with_upstream, git_procs):
+        for repo, git_proc in zip(self.repos_with_upstream, git_procs):
             out, _ = git_proc.communicate()
             output = out.decode().strip()
             ahead, behind = output.split()
@@ -126,6 +156,17 @@ class GitCommander:
         return proc
 
     @classmethod
+    def proc_git_fetch_branch(cls, repo_fullpath, current_branch):
+        proc = subprocess.Popen(
+            ["git", "fetch", "origin", current_branch],
+            cwd=repo_fullpath,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        return proc
+
+    @classmethod
     def proc_git_commits_state(cls, repo_fullpath, current_branch, upstream_branch):
         proc = subprocess.Popen(
             [
@@ -146,6 +187,7 @@ class GitRepo:
     def __init__(self, name, fullpath):
         self.fullpath = fullpath
         self.name = name
+        self.has_upstream = None
         self.current_branch = ""
         self.upstream_branch = ""
         self.commits_ahead = ""
@@ -154,7 +196,7 @@ class GitRepo:
         # self._color = ""  # property?
 
     def __str__(self):
-        if not self.upstream_branch:
+        if not self.has_upstream:
             color = Style.YELLOW
         elif self.commits_behind == 0 and self.commits_ahead == 0:
             color = Style.GREEN
