@@ -79,7 +79,7 @@ class GitCommander:
 
     @property
     def repos_with_upstream(self):
-        return [repo for repo in self.repos if repo.has_upstream]
+        return [repo for repo in self.repos if repo.has_upstream is not False]
 
     def get_current_branches(self):
         git_procs = []
@@ -89,15 +89,22 @@ class GitCommander:
 
         for repo, git_proc in zip(self.repos, git_procs):
             out, _ = git_proc.communicate()
-            repo.current_branch = out.decode().strip()
+            current_branch = out.decode().strip()
+            if current_branch:
+                repo.current_branch = out.decode().strip()
+            else:
+                repo.has_upstream = False
+                repo.current_branch = "-- No branch --"
+                repo.commits_ahead = "N/A"
+                repo.commits_behind = "N/A"
 
     def get_fetched_branches(self):
         git_procs = []
-        for repo in self.repos:
+        for repo in self.repos_with_upstream:
             git_proc = GitCommander.proc_git_fetch_branch(repo.fullpath, repo.current_branch)
             git_procs.append(git_proc)
 
-        for repo, git_proc in zip(self.repos, git_procs):
+        for repo, git_proc in zip(self.repos_with_upstream, git_procs):
             _, _ = git_proc.communicate()
             repo.has_upstream = git_proc.returncode == 0
             if not repo.has_upstream:
