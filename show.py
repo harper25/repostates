@@ -31,8 +31,8 @@ def main():
 def get_cli_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "-d",
-        "--dir",
+        "dir",
+        nargs="?",
         help="directory with your git repositories, defaults to the current directory",
         default=os.getcwd(),
     )

@@ -26,13 +26,13 @@ Then, the best option to run the tool is to clone the repository and:
 - or create a suitable alias in `.zshrc` or `.bash_profile`, e.g.:
 
     ```sh
-    alias repostates="python /<path-to-microservices-git-state>/show.py"
+    alias repostates="python3 /<path-to-microservices-git-state>/show.py"
     ```
 
     It is possible to append the new alias to your shell init script by running:
 
     ```sh
-    echo 'alias repostates="python /<path-to-microservices-git-state>/show.py"' >> ~/.zshrc
+    echo 'alias repostates="python3 /<path-to-microservices-git-state>/show.py"' >> ~/.zshrc
     ```
 
     And then run:
@@ -40,18 +40,15 @@ Then, the best option to run the tool is to clone the repository and:
     repostates --help
     ```
 
-    *Please remember to change `python` to `python3` on Linux machines.*
-
-
 ## Usage
 
 Two cli parameters are available in the tool:
 
-- `-d DIR, --dir DIR` - directory with your git repositories to check, defaults to the current directory, e.g.:
+- `dir` - positional argument, directory with your git repositories to check (defaults to the current directory):
     ```sh
-    repostates -d /Users/me/projects
+    repostates /Users/me/projects
     ```
-- `-r REG, --reg REG` - regex for filtering repositories to show (in case you would like to check only a subset of repositories), e.g.:
+- `-r REG, --reg REG` - optional regex for filtering repositories to show (in case you would like to check only a subset of repositories):
     ```sh
     repostates -r '\-api-'
     repostates -r '^((?!test).)*$'
