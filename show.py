@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 import sys
+from enum import Enum
 
 
 def main():
@@ -21,11 +22,19 @@ def main():
     git_commander.get_upstream_branches()
     print("Gathering state...")
     git_commander.get_commits_state()
+    present_table_summary(repos)
 
+
+def present_table_summary(repos):
     print(f"\n{Style.BLUE}{'REPOSITORY':<40}{'BRANCH':<50}COMMITS{Style.RESET}")
     print(f"{Style.BLUE}{Style.UNDERLINE}{'':<40}{'':<50}AHEAD/BEHIND{Style.RESET}")
-    for repo in git_commander.repos:
-        print(repo)
+    for repo in repos:
+        print(
+            f"{STATUS_COLOR_MAPPING[repo.status]}{repo.name:<40}"
+            f"{repo.current_branch:<50}"
+            f"{repo.commits_ahead:<4}"
+            f"{repo.commits_behind}{Style.RESET}"
+        )
 
 
 def get_cli_arguments():
@@ -200,23 +209,16 @@ class GitRepo:
         self.commits_ahead = ""
         self.commits_behind = ""
 
-        # self._color = ""  # property?
-
-    def __str__(self):
+    @property
+    def status(self):
         if not self.has_upstream:
-            color = Style.YELLOW
+            return Status.MODERATE
         elif self.commits_behind == 0 and self.commits_ahead == 0:
-            color = Style.GREEN
+            return Status.OK
         elif self.commits_behind > 0:
-            color = Style.RED
+            return Status.CRITICAL
         else:
-            color = Style.YELLOW
-        return (
-            f"{color}{self.name:<40}"
-            f"{self.current_branch:<50}"
-            f"{self.commits_ahead:<4}"
-            f"{self.commits_behind}{Style.RESET}"
-        )
+            return Status.MODERATE
 
     def __repr__(self):
         return f"GitRepo(fullpath={self.fullpath}, name={self.name})"
@@ -235,7 +237,17 @@ class Style:
     RESET = "\033[0m"
 
 
-# table formatter class with default format?
+class Status(Enum):
+    OK = "OK"
+    MODERATE = "MODERATE"
+    CRITICAL = "CRITICAL"
+
+
+STATUS_COLOR_MAPPING = {
+    Status.OK: Style.GREEN,
+    Status.MODERATE: Style.YELLOW,
+    Status.CRITICAL: Style.RED,
+}
 
 
 if __name__ == "__main__":
