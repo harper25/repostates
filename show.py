@@ -28,7 +28,7 @@ def main():
 def present_table_summary(repos):
     print(f"\n{Style.BLUE}{'REPOSITORY':<40}{'BRANCH':<50}COMMITS{Style.RESET}")
     print(f"{Style.BLUE}{Style.UNDERLINE}{'':<40}{'':<50}AHEAD/BEHIND{Style.RESET}")
-    for repo in repos:
+    for repo in sorted(repos, key=lambda repo: repo.name):
         print(
             f"{STATUS_COLOR_MAPPING[repo.status]}{repo.name:<40}"
             f"{repo.current_branch:<50}"
