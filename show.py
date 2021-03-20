@@ -26,12 +26,24 @@ def main():
 
 
 def present_table_summary(repos):
-    print(f"\n{Style.BLUE}{'REPOSITORY':<40}{'BRANCH':<50}COMMITS{Style.RESET}")
-    print(f"{Style.BLUE}{Style.UNDERLINE}{'':<40}{'':<50}AHEAD/BEHIND{Style.RESET}")
+    header_name = "REPOSITORY"
+    header_branch = "BRANCH"
+    margin = 3
+    col_width_name = max(max(len(repo.name) for repo in repos), len(header_name)) + margin
+    col_width_branch = (
+        max(max(len(repo.current_branch) for repo in repos), len(header_branch)) + margin
+    )
+
+    print(
+        f"\n{Style.BLUE}{header_name:<{col_width_name}}{header_branch:<{col_width_branch}}COMMITS{Style.RESET}"
+    )
+    print(
+        f"{Style.BLUE}{Style.UNDERLINE}{'':<{col_width_name}}{'':<{col_width_branch}}AHEAD/BEHIND{Style.RESET}"
+    )
     for repo in sorted(repos, key=lambda repo: repo.name):
         print(
-            f"{STATUS_COLOR_MAPPING[repo.status]}{repo.name:<40}"
-            f"{repo.current_branch:<50}"
+            f"{STATUS_COLOR_MAPPING[repo.status]}{repo.name:<{col_width_name}}"
+            f"{repo.current_branch:<{col_width_branch}}"
             f"{repo.commits_ahead:<4}"
             f"{repo.commits_behind}{Style.RESET}"
         )
