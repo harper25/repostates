@@ -21,18 +21,18 @@ Then, the best option to run the tool is to clone the repository and:
 - use the tool directly
 
     ```sh
-    ~/<path-to-microservices-git-state>/show.py --help
+    ~/<path-to-microservices-git-state>/repostates.py --help
     ```
 - or create a suitable alias in `.zshrc` or `.bash_profile`, e.g.:
 
     ```sh
-    alias repostates="python3 /<path-to-microservices-git-state>/show.py"
+    alias repostates="python3 /<path-to-microservices-git-state>/repostates.py"
     ```
 
     It is possible to append the new alias to your shell init script by running:
 
     ```sh
-    echo 'alias repostates="python3 /<path-to-microservices-git-state>/show.py"' >> ~/.zshrc
+    echo 'alias repostates="python3 /<path-to-microservices-git-state>/repostates.py"' >> ~/.zshrc
     ```
 
     And then run:
