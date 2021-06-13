@@ -105,7 +105,7 @@ class GitCommander:
     def get_current_branches(self):
         git_procs = []
         for repo in self.repos:
-            git_proc = GitCommander.proc_git_branch(repo.fullpath)
+            git_proc = self.proc_git_branch(repo.fullpath)
             git_procs.append(git_proc)
 
         for repo, git_proc in zip(self.repos, git_procs):
@@ -122,7 +122,7 @@ class GitCommander:
     def get_fetched_branches(self):
         git_procs = []
         for repo in self.repos_with_upstream:
-            git_proc = GitCommander.proc_git_fetch_branch(repo.fullpath, repo.current_branch)
+            git_proc = self.proc_git_fetch_branch(repo.fullpath, repo.current_branch)
             git_procs.append(git_proc)
 
         for repo, git_proc in zip(self.repos_with_upstream, git_procs):
@@ -135,7 +135,7 @@ class GitCommander:
     def get_upstream_branches(self):
         git_procs = []
         for repo in self.repos_with_upstream:
-            git_proc = GitCommander.proc_git_upstream_branch(repo.fullpath, repo.current_branch)
+            git_proc = self.proc_git_upstream_branch(repo.fullpath, repo.current_branch)
             git_procs.append(git_proc)
 
         for repo, git_proc in zip(self.repos_with_upstream, git_procs):
@@ -150,7 +150,7 @@ class GitCommander:
     def get_commits_state(self):
         git_procs = []
         for repo in self.repos_with_upstream:
-            git_proc = GitCommander.proc_git_commits_state(
+            git_proc = self.proc_git_commits_state(
                 repo.fullpath, repo.current_branch, repo.upstream_branch
             )
             git_procs.append(git_proc)
@@ -162,8 +162,8 @@ class GitCommander:
             repo.commits_ahead = int(ahead)
             repo.commits_behind = int(behind)
 
-    @classmethod
-    def proc_git_branch(cls, repo_fullpath):
+    @staticmethod
+    def proc_git_branch(repo_fullpath):
         proc = subprocess.Popen(
             ["git", "branch", "--show-current"],
             cwd=repo_fullpath,
@@ -172,8 +172,8 @@ class GitCommander:
         )
         return proc
 
-    @classmethod
-    def proc_git_upstream_branch(cls, repo_fullpath, current_branch):
+    @staticmethod
+    def proc_git_upstream_branch(repo_fullpath, current_branch):
         proc = subprocess.Popen(
             ["git", "rev-parse", "--abbrev-ref", current_branch + "@{upstream}"],
             cwd=repo_fullpath,
@@ -183,8 +183,8 @@ class GitCommander:
         )
         return proc
 
-    @classmethod
-    def proc_git_fetch_branch(cls, repo_fullpath, current_branch):
+    @staticmethod
+    def proc_git_fetch_branch(repo_fullpath, current_branch):
         proc = subprocess.Popen(
             ["git", "fetch", "origin", current_branch],
             cwd=repo_fullpath,
@@ -194,8 +194,8 @@ class GitCommander:
         )
         return proc
 
-    @classmethod
-    def proc_git_commits_state(cls, repo_fullpath, current_branch, upstream_branch):
+    @staticmethod
+    def proc_git_commits_state(repo_fullpath, current_branch, upstream_branch):
         proc = subprocess.Popen(
             [
                 "git",
