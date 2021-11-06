@@ -11,7 +11,7 @@ def main():
     repos = get_repos(fullpath_start_dir, regex)
 
     if not repos:
-        print("No repos found!")
+        print(f"{Style.YELLOW}No repos found!{Style.RESET}")
         return
 
     git_commander = GitCommander(repos)
@@ -96,7 +96,7 @@ def filter_directories_by_regex(directories, regex):
 
 
 def is_git_repo(fullpath):
-    return ".git" in os.listdir(fullpath)
+    return ".git" in os.listdir(fullpath) and os.path.isdir(os.path.join(fullpath, ".git"))
 
 
 class GitCommander:
@@ -167,51 +167,36 @@ class GitCommander:
             repo.commits_ahead = int(ahead)
             repo.commits_behind = int(behind)
 
-    @staticmethod
-    def proc_git_branch(repo_fullpath):
-        proc = subprocess.Popen(
-            ["git", "branch", "--show-current"],
-            cwd=repo_fullpath,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-        )
-        return proc
+    def proc_git_branch(self, repo_fullpath):
+        command_args = ["git", "branch", "--show-current"]
+        return self.popen_process(command_args, path=repo_fullpath)
+
+    def proc_git_upstream_branch(self, repo_fullpath, current_branch):
+        command_args = ["git", "rev-parse", "--abbrev-ref", current_branch + "@{upstream}"]
+        return self.popen_process(command_args, path=repo_fullpath)
+
+    def proc_git_fetch_branch(self, repo_fullpath, current_branch):
+        command_args = ["git", "fetch", "origin", current_branch]
+        return self.popen_process(command_args, path=repo_fullpath)
+
+    def proc_git_commits_state(self, repo_fullpath, current_branch, upstream_branch):
+        command_args = [
+            "git",
+            "rev-list",
+            "--left-right",
+            "--count",
+            current_branch + "..." + upstream_branch,
+        ]
+        return self.popen_process(command_args, path=repo_fullpath)
 
     @staticmethod
-    def proc_git_upstream_branch(repo_fullpath, current_branch):
+    def popen_process(args, path):
         proc = subprocess.Popen(
-            ["git", "rev-parse", "--abbrev-ref", current_branch + "@{upstream}"],
-            cwd=repo_fullpath,
+            args,
+            cwd=path,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-        )
-        return proc
-
-    @staticmethod
-    def proc_git_fetch_branch(repo_fullpath, current_branch):
-        proc = subprocess.Popen(
-            ["git", "fetch", "origin", current_branch],
-            cwd=repo_fullpath,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        return proc
-
-    @staticmethod
-    def proc_git_commits_state(repo_fullpath, current_branch, upstream_branch):
-        proc = subprocess.Popen(
-            [
-                "git",
-                "rev-list",
-                "--left-right",
-                "--count",
-                current_branch + "..." + upstream_branch,
-            ],
-            cwd=repo_fullpath,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
         )
         return proc
 
