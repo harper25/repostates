@@ -72,22 +72,27 @@ def get_repos(fullpath_start_dir, regex):
     }
 
     if regex:
-        try:
-            pattern = re.compile(regex)
-        except:
-            print(f"{Style.RED}Invalid regex!{Style.RESET}")
-            sys.exit(1)
-        directories = {
-            dirname: fullpath
-            for dirname, fullpath in directories.items()
-            if pattern.search(dirname)
-        }
+        directories = filter_directories_by_regex(directories, regex)
 
     return [
         GitRepo(dirname, fullpath)
         for dirname, fullpath in directories.items()
         if is_git_repo(fullpath)
     ]
+
+
+def filter_directories_by_regex(directories, regex):
+    try:
+        pattern = re.compile(regex)
+    except:
+        print(f"{Style.RED}Invalid regex!{Style.RESET}")
+        sys.exit(1)
+    directories = {
+        dirname: fullpath
+        for dirname, fullpath in directories.items()
+        if pattern.search(dirname)
+    }
+    return directories
 
 
 def is_git_repo(fullpath):
