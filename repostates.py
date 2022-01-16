@@ -22,17 +22,22 @@ def main():
     git_commander.get_upstream_branches()
     print("Gathering state...")
     git_commander.get_commits_state()
-    present_table_summary(repos)
+    present_table_summary(git_commander.repos)
 
 
 def present_table_summary(repos):
     header_name = "REPOSITORY"
     header_branch = "BRANCH"
-    margin = 3
-    col_width_name = max(max(len(repo.name) for repo in repos), len(header_name)) + margin
-    col_width_branch = (
-        max(max(len(repo.current_branch) for repo in repos), len(header_branch)) + margin
-    )
+
+    def get_column_width(header, content, margin=3):
+        max_width_content = max(len(row) for row in content)
+        column_width = max(len(header), max_width_content) + margin
+        return column_width
+
+    repo_names = [repo.name for repo in repos]
+    branch_names = [repo.current_branch for repo in repos]
+    col_width_name = get_column_width(header_name, repo_names)
+    col_width_branch = get_column_width(header_branch, branch_names)
 
     print(
         f"\n{Style.BLUE}{header_name:<{col_width_name}}{header_branch:<{col_width_branch}}COMMITS{Style.RESET}"
@@ -101,7 +106,7 @@ def is_git_repo(fullpath):
 
 class GitCommander:
     def __init__(self, repos):
-        self.repos = repos
+        self.repos = list(repos)
 
     @property
     def repos_with_upstream(self):
