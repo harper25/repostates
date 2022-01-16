@@ -123,21 +123,37 @@ class GitCommander:
             returncode = git_proc.returncode
             output_handler_fcn(repo, output, returncode)  # return repo? state mutation
 
+    def run_processes(self, repos, process_fcn, handle_fcn):
+        git_procs = self.setup_processes(repos, process_fcn)
+        self.handle_processes(repos, git_procs, handle_fcn)
+
     def get_current_branches(self):
-        git_procs = self.setup_processes(self.repos, self.proc_git_branch)
-        self.handle_processes(self.repos, git_procs, self.handle_git_branch_process)
+        self.run_processes(
+            self.repos,
+            self.proc_git_branch,
+            self.handle_git_branch_process
+        )
 
     def get_fetched_branches(self):
-        git_procs = self.setup_processes(self.repos_with_upstream, self.proc_git_fetch_branch)
-        self.handle_processes(self.repos_with_upstream, git_procs, self.handle_git_fetch_process)
+        self.run_processes(
+            self.repos_with_upstream,
+            self.proc_git_fetch_branch,
+            self.handle_git_fetch_process
+        )
 
     def get_upstream_branches(self):
-        git_procs = self.setup_processes(self.repos_with_upstream, self.proc_git_upstream_branch)
-        self.handle_processes(self.repos_with_upstream, git_procs, self.handle_get_upstream_branches)
+        self.run_processes(
+            self.repos_with_upstream,
+            self.proc_git_upstream_branch,
+            self.handle_get_upstream_branches
+        )
 
     def get_commits_state(self):
-        git_procs = self.setup_processes(self.repos_with_upstream, self.proc_git_commits_state)
-        self.handle_processes(self.repos_with_upstream, git_procs, self.handle_get_commits_state)
+        self.run_processes(
+            self.repos_with_upstream,
+            self.proc_git_commits_state,
+            self.handle_get_commits_state
+        )
 
     def proc_git_branch(self, repo):
         command_args = ["git", "branch", "--show-current"]
