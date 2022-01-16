@@ -11,7 +11,7 @@ def main():
     repos = get_repos(fullpath_start_dir, regex)
 
     if not repos:
-        print("No repos found!")
+        print(f"{Style.YELLOW}No repos found!{Style.RESET}")
         return
 
     git_commander = GitCommander(repos)
@@ -22,17 +22,22 @@ def main():
     git_commander.get_upstream_branches()
     print("Gathering state...")
     git_commander.get_commits_state()
-    present_table_summary(repos)
+    present_table_summary(git_commander.repos)
 
 
 def present_table_summary(repos):
     header_name = "REPOSITORY"
     header_branch = "BRANCH"
-    margin = 3
-    col_width_name = max(max(len(repo.name) for repo in repos), len(header_name)) + margin
-    col_width_branch = (
-        max(max(len(repo.current_branch) for repo in repos), len(header_branch)) + margin
-    )
+
+    def get_column_width(header, content, margin=3):
+        max_width_content = max(len(row) for row in content)
+        column_width = max(len(header), max_width_content) + margin
+        return column_width
+
+    repo_names = [repo.name for repo in repos]
+    branch_names = [repo.current_branch for repo in repos]
+    col_width_name = get_column_width(header_name, repo_names)
+    col_width_branch = get_column_width(header_branch, branch_names)
 
     print(
         f"\n{Style.BLUE}{header_name:<{col_width_name}}{header_branch:<{col_width_branch}}COMMITS{Style.RESET}"
@@ -72,16 +77,7 @@ def get_repos(fullpath_start_dir, regex):
     }
 
     if regex:
-        try:
-            pattern = re.compile(regex)
-        except:
-            print(f"{Style.RED}Invalid regex!{Style.RESET}")
-            sys.exit(1)
-        directories = {
-            dirname: fullpath
-            for dirname, fullpath in directories.items()
-            if pattern.search(dirname)
-        }
+        directories = filter_directories_by_regex(directories, regex)
 
     return [
         GitRepo(dirname, fullpath)
@@ -90,123 +86,141 @@ def get_repos(fullpath_start_dir, regex):
     ]
 
 
+def filter_directories_by_regex(directories, regex):
+    try:
+        pattern = re.compile(regex)
+    except:
+        print(f"{Style.RED}Invalid regex!{Style.RESET}")
+        sys.exit(1)
+    directories = {
+        dirname: fullpath
+        for dirname, fullpath in directories.items()
+        if pattern.search(dirname)
+    }
+    return directories
+
+
 def is_git_repo(fullpath):
-    return ".git" in os.listdir(fullpath)
+    return ".git" in os.listdir(fullpath) and os.path.isdir(os.path.join(fullpath, ".git"))
 
 
 class GitCommander:
     def __init__(self, repos):
-        self.repos = repos
+        self.repos = list(repos)
 
     @property
     def repos_with_upstream(self):
         return [repo for repo in self.repos if repo.has_upstream is not False]
 
-    def get_current_branches(self):
+    @staticmethod
+    def setup_processes(repos, process_fcn):
         git_procs = []
-        for repo in self.repos:
-            git_proc = self.proc_git_branch(repo.fullpath)
+        for repo in repos:
+            git_proc = process_fcn(repo)
             git_procs.append(git_proc)
+        return git_procs
 
-        for repo, git_proc in zip(self.repos, git_procs):
+    @staticmethod
+    def handle_processes(repos, processes, output_handler_fcn):
+        for repo, git_proc in zip(repos, processes):
             out, _ = git_proc.communicate()
-            current_branch = out.decode().strip()
-            if current_branch:
-                repo.current_branch = out.decode().strip()
-            else:
-                repo.has_upstream = False
-                repo.current_branch = "-- No branch --"
-                repo.commits_ahead = "N/A"
-                repo.commits_behind = "N/A"
+            output = out.decode().strip()
+            returncode = git_proc.returncode
+            output_handler_fcn(repo, output, returncode)  # return repo? state mutation
+
+    def run_processes(self, repos, process_fcn, handle_fcn):
+        git_procs = self.setup_processes(repos, process_fcn)
+        self.handle_processes(repos, git_procs, handle_fcn)
+
+    def get_current_branches(self):
+        self.run_processes(
+            self.repos,
+            self.proc_git_branch,
+            self.handle_git_branch_process
+        )
 
     def get_fetched_branches(self):
-        git_procs = []
-        for repo in self.repos_with_upstream:
-            git_proc = self.proc_git_fetch_branch(repo.fullpath, repo.current_branch)
-            git_procs.append(git_proc)
-
-        for repo, git_proc in zip(self.repos_with_upstream, git_procs):
-            _, _ = git_proc.communicate()
-            repo.has_upstream = git_proc.returncode == 0
-            if not repo.has_upstream:
-                repo.commits_ahead = "N/A"
-                repo.commits_behind = "N/A"
+        self.run_processes(
+            self.repos_with_upstream,
+            self.proc_git_fetch_branch,
+            self.handle_git_fetch_process
+        )
 
     def get_upstream_branches(self):
-        git_procs = []
-        for repo in self.repos_with_upstream:
-            git_proc = self.proc_git_upstream_branch(repo.fullpath, repo.current_branch)
-            git_procs.append(git_proc)
-
-        for repo, git_proc in zip(self.repos_with_upstream, git_procs):
-            out, _ = git_proc.communicate()
-            output = out.decode().strip()
-            if git_proc.returncode == 0:
-                repo.upstream_branch = output
-            else:
-                repo.commits_ahead = "N/A"
-                repo.commits_behind = "N/A"
+        self.run_processes(
+            self.repos_with_upstream,
+            self.proc_git_upstream_branch,
+            self.handle_get_upstream_branches
+        )
 
     def get_commits_state(self):
-        git_procs = []
-        for repo in self.repos_with_upstream:
-            git_proc = self.proc_git_commits_state(
-                repo.fullpath, repo.current_branch, repo.upstream_branch
-            )
-            git_procs.append(git_proc)
-
-        for repo, git_proc in zip(self.repos_with_upstream, git_procs):
-            out, _ = git_proc.communicate()
-            output = out.decode().strip()
-            ahead, behind = output.split()
-            repo.commits_ahead = int(ahead)
-            repo.commits_behind = int(behind)
-
-    @staticmethod
-    def proc_git_branch(repo_fullpath):
-        proc = subprocess.Popen(
-            ["git", "branch", "--show-current"],
-            cwd=repo_fullpath,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
+        self.run_processes(
+            self.repos_with_upstream,
+            self.proc_git_commits_state,
+            self.handle_get_commits_state
         )
-        return proc
+
+    def proc_git_branch(self, repo):
+        command_args = ["git", "branch", "--show-current"]
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    def proc_git_upstream_branch(self, repo):
+        command_args = ["git", "rev-parse", "--abbrev-ref", repo.current_branch + "@{upstream}"]
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    def proc_git_fetch_branch(self, repo):
+        command_args = ["git", "fetch", "origin", repo.current_branch]
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    def proc_git_commits_state(self, repo):
+        command_args = [
+            "git",
+            "rev-list",
+            "--left-right",
+            "--count",
+            repo.current_branch + "..." + repo.upstream_branch,
+        ]
+        return self.popen_process(command_args, path=repo.fullpath)
 
     @staticmethod
-    def proc_git_upstream_branch(repo_fullpath, current_branch):
+    def handle_git_branch_process(repo, output, returncode):
+        if output and returncode == 0:
+            repo.current_branch = output
+        else:
+            repo.has_upstream = False  # fix, two usages
+            repo.current_branch = "-- No branch --"
+            repo.commits_ahead = "N/A"
+            repo.commits_behind = "N/A"
+
+    @staticmethod
+    def handle_get_upstream_branches(repo, output, returncode):
+        if returncode == 0:
+            repo.upstream_branch = output
+        else:
+            repo.commits_ahead = "N/A"
+            repo.commits_behind = "N/A"
+
+    @staticmethod
+    def handle_git_fetch_process(repo, output, returncode):
+        repo.has_upstream = returncode == 0
+        if not repo.has_upstream:
+            repo.commits_ahead = "N/A"
+            repo.commits_behind = "N/A"
+
+    @staticmethod
+    def handle_get_commits_state(repo, output, returncode):
+        ahead, behind = output.split()
+        repo.commits_ahead = int(ahead)
+        repo.commits_behind = int(behind)
+
+    @staticmethod
+    def popen_process(args, path):
         proc = subprocess.Popen(
-            ["git", "rev-parse", "--abbrev-ref", current_branch + "@{upstream}"],
-            cwd=repo_fullpath,
+            args,
+            cwd=path,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-        )
-        return proc
-
-    @staticmethod
-    def proc_git_fetch_branch(repo_fullpath, current_branch):
-        proc = subprocess.Popen(
-            ["git", "fetch", "origin", current_branch],
-            cwd=repo_fullpath,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        return proc
-
-    @staticmethod
-    def proc_git_commits_state(repo_fullpath, current_branch, upstream_branch):
-        proc = subprocess.Popen(
-            [
-                "git",
-                "rev-list",
-                "--left-right",
-                "--count",
-                current_branch + "..." + upstream_branch,
-            ],
-            cwd=repo_fullpath,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
         )
         return proc
 
