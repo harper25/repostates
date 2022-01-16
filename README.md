@@ -1,6 +1,6 @@
 # microservices-git-state
 
-The goal is to provide short insight about the state of a **set of git repositories** with one command.
+The goal of the tool is to provide short insight about the state of a **set of git repositories** with one command.
 
 The script *fetches* origin for each repository and then displays the following info:
 - current branch
@@ -11,7 +11,9 @@ The script *fetches* origin for each repository and then displays the following 
 
 ### Background story
 
-Basically, when I was running integration tests locally in a microservice project (with Docker and docker-compose) I always had to check every repository if I was on a correct branch and if some new changes came in from other developers. That meant either running multiple commands from the CMD or clicking through some Git client UI, repeated for every repository. Thanks to that inconvenience I came up with an idea for automating this task with a simple command line utility. A short summary presented by the tool shows which repositories are up-to-date and which have to be updated or checked more thouroughly.
+Basically, when I wanted to run integration tests locally for a project with microservice architecture (with Docker and docker-compose) I always had to check every repository if the branch is correct and up to date (new commits from other developers). That meant either running multiple commands from the terminal or clicking through a Git client UI. 
+This project was created to overcome this inconvenience by automating repetitive actions with a simple command line utility.
+The tool, when run, presents a short summary in a table format which shows which repositories are up-to-date and which ones have to be updated or investigated more carefully.
 
 ## Getting Started & Installing
 
