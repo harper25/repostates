@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 import sys
+from abc import ABC, abstractmethod
 from enum import Enum
 
 
@@ -14,15 +15,14 @@ def main():
         print(f"{Style.YELLOW}No repos found!{Style.RESET}")
         return
 
-    git_commander = GitCommander(repos)
-    print("Preparation...")
-    git_commander.get_current_branches()
-    print("Fetching...")
-    git_commander.get_fetched_branches()
-    git_commander.get_upstream_branches()
-    print("Gathering state...")
-    git_commander.get_commits_state()
-    present_table_summary(git_commander.repos)
+    git_command_executor = GitCommandsExecutor()
+    pipeline = [GitCurrentBranch(), GitFetchOrigin(), GitUpstreamBranch(), GitCommitsState()]
+
+    for git_command in pipeline:
+        print(git_command.message)
+        git_command_executor.run_processes(repos, git_command)
+
+    present_table_summary(repos)
 
 
 def present_table_summary(repos):
@@ -101,117 +101,19 @@ def filter_directories_by_regex(directories, regex):
 
 
 def is_git_repo(fullpath):
-    return ".git" in os.listdir(fullpath) and os.path.isdir(os.path.join(fullpath, ".git"))
+    return os.path.isdir(os.path.join(fullpath, ".git"))
 
 
-class GitCommander:
-    def __init__(self, repos):
-        self.repos = list(repos)
+class GitCommand(ABC):
+    message: str
 
-    @property
-    def repos_with_upstream(self):
-        return [repo for repo in self.repos if repo.has_upstream is not False]
+    @abstractmethod
+    def setup_process(self, repo):
+        pass
 
-    @staticmethod
-    def setup_processes(repos, process_fcn):
-        git_procs = []
-        for repo in repos:
-            git_proc = process_fcn(repo)
-            git_procs.append(git_proc)
-        return git_procs
-
-    @staticmethod
-    def handle_processes(repos, processes, output_handler_fcn):
-        for repo, git_proc in zip(repos, processes):
-            out, _ = git_proc.communicate()
-            output = out.decode().strip()
-            returncode = git_proc.returncode
-            output_handler_fcn(repo, output, returncode)  # return repo? state mutation
-
-    def run_processes(self, repos, process_fcn, handle_fcn):
-        git_procs = self.setup_processes(repos, process_fcn)
-        self.handle_processes(repos, git_procs, handle_fcn)
-
-    def get_current_branches(self):
-        self.run_processes(
-            self.repos,
-            self.proc_git_branch,
-            self.handle_git_branch_process
-        )
-
-    def get_fetched_branches(self):
-        self.run_processes(
-            self.repos_with_upstream,
-            self.proc_git_fetch_branch,
-            self.handle_git_fetch_process
-        )
-
-    def get_upstream_branches(self):
-        self.run_processes(
-            self.repos_with_upstream,
-            self.proc_git_upstream_branch,
-            self.handle_get_upstream_branches
-        )
-
-    def get_commits_state(self):
-        self.run_processes(
-            self.repos_with_upstream,
-            self.proc_git_commits_state,
-            self.handle_get_commits_state
-        )
-
-    def proc_git_branch(self, repo):
-        command_args = ["git", "branch", "--show-current"]
-        return self.popen_process(command_args, path=repo.fullpath)
-
-    def proc_git_upstream_branch(self, repo):
-        command_args = ["git", "rev-parse", "--abbrev-ref", repo.current_branch + "@{upstream}"]
-        return self.popen_process(command_args, path=repo.fullpath)
-
-    def proc_git_fetch_branch(self, repo):
-        command_args = ["git", "fetch", "origin", repo.current_branch]
-        return self.popen_process(command_args, path=repo.fullpath)
-
-    def proc_git_commits_state(self, repo):
-        command_args = [
-            "git",
-            "rev-list",
-            "--left-right",
-            "--count",
-            repo.current_branch + "..." + repo.upstream_branch,
-        ]
-        return self.popen_process(command_args, path=repo.fullpath)
-
-    @staticmethod
-    def handle_git_branch_process(repo, output, returncode):
-        if output and returncode == 0:
-            repo.current_branch = output
-        else:
-            repo.has_upstream = False  # fix, two usages
-            repo.current_branch = "-- No branch --"
-            repo.commits_ahead = "N/A"
-            repo.commits_behind = "N/A"
-
-    @staticmethod
-    def handle_get_upstream_branches(repo, output, returncode):
-        if returncode == 0:
-            repo.upstream_branch = output
-        else:
-            repo.commits_ahead = "N/A"
-            repo.commits_behind = "N/A"
-
-    @staticmethod
-    def handle_git_fetch_process(repo, output, returncode):
-        repo.has_upstream = returncode == 0
-        if not repo.has_upstream:
-            repo.commits_ahead = "N/A"
-            repo.commits_behind = "N/A"
-
-    @staticmethod
-    def handle_get_commits_state(repo, output, returncode):
-        ahead, behind = output.split()
-        repo.commits_ahead = int(ahead)
-        repo.commits_behind = int(behind)
+    @abstractmethod
+    def handle_output(self, repo):
+        pass
 
     @staticmethod
     def popen_process(args, path):
@@ -225,19 +127,132 @@ class GitCommander:
         return proc
 
 
+class GitCommandsExecutor:
+    def run_processes(self, repos, git_command: GitCommand):
+        elligible_repos = [
+            repo for repo in repos if git_command.is_relevant(repo)
+        ]
+        git_procs = self._setup_processes(elligible_repos, git_command)
+        self._handle_processes(elligible_repos, git_procs, git_command)
+
+    @staticmethod
+    def _setup_processes(repos, git_command: GitCommand):
+        git_procs = []
+        for repo in repos:
+            git_proc = git_command.setup_process(repo)
+            git_procs.append(git_proc)
+        return git_procs
+
+    @staticmethod
+    def _handle_processes(repos, processes, git_command: GitCommand):
+        for repo, git_proc in zip(repos, processes):
+            out, _ = git_proc.communicate()
+            output = out.decode().strip()
+            returncode = git_proc.returncode
+            git_command.handle_output(repo, output, returncode)
+
+
+class GitCurrentBranch(GitCommand):
+    message = "Getting current branches..."
+
+    def setup_process(self, repo):
+        command_args = ["git", "branch", "--show-current"]
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo):
+        return True
+
+    @staticmethod
+    def handle_output(repo, output, returncode):
+        if output and returncode == 0:
+            repo.on_branch = True
+            repo.current_branch = output
+        else:
+            repo.on_branch = False
+            repo.current_branch = "-- No branch --"
+            repo.commits_ahead = "N/A"
+            repo.commits_behind = "N/A"
+
+
+class GitFetchOrigin(GitCommand):
+    message = "Fetching remote state..."
+
+    def setup_process(self, repo):
+        command_args = ["git", "fetch", "origin", repo.current_branch]
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo):
+        return True
+
+    @staticmethod
+    def handle_output(repo, output, returncode):
+        repo.has_upstream = returncode == 0
+        if not repo.has_upstream:
+            repo.commits_ahead = "N/A"
+            repo.commits_behind = "N/A"
+
+
+
+class GitUpstreamBranch(GitCommand):
+    message = "Getting upstream branches..."
+
+    def setup_process(self, repo):
+        command_args = ["git", "rev-parse", "--abbrev-ref", repo.current_branch + "@{upstream}"]
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo):
+        return repo.on_branch
+
+    @staticmethod
+    def handle_output(repo, output, returncode):
+        if returncode == 0:
+            repo.upstream_branch = output
+        else:
+            repo.commits_ahead = "N/A"
+            repo.commits_behind = "N/A"
+
+
+class GitCommitsState(GitCommand):
+    message = "Getting commits state..."
+
+    def setup_process(self, repo):
+        command_args = [
+            "git",
+            "rev-list",
+            "--left-right",
+            "--count",
+            repo.current_branch + "..." + repo.upstream_branch,
+        ]
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo):
+        return repo.has_upstream
+
+    @staticmethod
+    def handle_output(repo, output, returncode):
+        ahead, behind = output.split()
+        repo.commits_ahead = int(ahead)
+        repo.commits_behind = int(behind)
+
+
 class GitRepo:
     def __init__(self, name, fullpath):
         self.fullpath = fullpath
         self.name = name
+        self.on_branch = None
         self.has_upstream = None
-        self.current_branch = ""
-        self.upstream_branch = ""
-        self.commits_ahead = ""
-        self.commits_behind = ""
+        self.current_branch = "N/A"
+        self.upstream_branch = "N/A"
+        self.commits_ahead = "N/A"
+        self.commits_behind = "N/A"
 
     @property
     def status(self):
-        if not self.has_upstream:
+        if not self.has_upstream or not self.on_branch or self.commits_ahead == "N/A":
             return Status.MODERATE
         elif self.commits_behind == 0 and self.commits_ahead == 0:
             return Status.OK
