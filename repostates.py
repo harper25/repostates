@@ -19,8 +19,7 @@ def main():
     pipeline = [GitCurrentBranch(), GitFetchOrigin(), GitUpstreamBranch(), GitCommitsState()]
 
     for git_command in pipeline:
-        if git_command.message:
-            print(git_command.message)
+        print(git_command.message)
         git_command_executor.run_processes(repos, git_command)
 
     present_table_summary(repos)
@@ -102,11 +101,11 @@ def filter_directories_by_regex(directories, regex):
 
 
 def is_git_repo(fullpath):
-    return ".git" in os.listdir(fullpath) and os.path.isdir(os.path.join(fullpath, ".git"))
+    return os.path.isdir(os.path.join(fullpath, ".git"))
 
 
 class GitCommand(ABC):
-    message = None
+    message: str
 
     @abstractmethod
     def setup_process(self, repo):
@@ -131,7 +130,7 @@ class GitCommand(ABC):
 class GitCommandsExecutor:
     def run_processes(self, repos, git_command: GitCommand):
         elligible_repos = [
-            repo for repo in repos if git_command.is_repo_relevant(repo)
+            repo for repo in repos if git_command.is_relevant(repo)
         ]
         git_procs = self._setup_processes(elligible_repos, git_command)
         self._handle_processes(elligible_repos, git_procs, git_command)
@@ -161,7 +160,7 @@ class GitCurrentBranch(GitCommand):
         return self.popen_process(command_args, path=repo.fullpath)
 
     @staticmethod
-    def is_repo_relevant(repo):
+    def is_relevant(repo):
         return True
 
     @staticmethod
@@ -184,7 +183,7 @@ class GitFetchOrigin(GitCommand):
         return self.popen_process(command_args, path=repo.fullpath)
 
     @staticmethod
-    def is_repo_relevant(repo):
+    def is_relevant(repo):
         return True
 
     @staticmethod
@@ -204,7 +203,7 @@ class GitUpstreamBranch(GitCommand):
         return self.popen_process(command_args, path=repo.fullpath)
 
     @staticmethod
-    def is_repo_relevant(repo):
+    def is_relevant(repo):
         return repo.on_branch
 
     @staticmethod
@@ -230,7 +229,7 @@ class GitCommitsState(GitCommand):
         return self.popen_process(command_args, path=repo.fullpath)
 
     @staticmethod
-    def is_repo_relevant(repo):
+    def is_relevant(repo):
         return repo.has_upstream
 
     @staticmethod
