@@ -12,7 +12,7 @@ black:
 	black .
 
 isort:
-	isort .
+	isort
 
 flake8:
 	flake8

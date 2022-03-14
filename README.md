@@ -64,6 +64,16 @@ MIT License
 
 Please, create pull requests in order to contribute.
 
+### Taskfile
+
+List possible linting commands with Taskfile:
+
+```sh
+task
+```
+
+Link: https://taskfile.dev/#/
+
 ## Authors
 
 * [harper25](https://github.com/harper25)
