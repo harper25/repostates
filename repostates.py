@@ -286,6 +286,9 @@ class GitRepo:
     def __repr__(self) -> str:
         return f"GitRepo(fullpath={self.fullpath}, name={self.name})"
 
+    def __eq__(self, other: object) -> bool:
+        return self.__dict__ == other.__dict__
+
 
 class Style:
     BLACK = "\033[30m"
