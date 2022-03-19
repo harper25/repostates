@@ -10,8 +10,8 @@ tasks:
     cmds:
       - task: isort
       - task: black
-      - flake8
-      - mypy .
+      - task: flake8
+      - task: mypy
 
   lint:
     desc: check code formatting and run static checks (makes no changes)
