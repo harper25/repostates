@@ -208,14 +208,8 @@ class GitCurrentBranch(GitCommand):
 
     @staticmethod
     def handle_output(repo: "GitRepo", output: str, returncode: int) -> None:
-        if output and returncode == 0:
-            repo.on_branch = True
-            repo.current_branch = output
-        else:
-            repo.on_branch = False
-            repo.current_branch = "-- No branch --"
-            repo.commits_ahead = "N/A"
-            repo.commits_behind = "N/A"
+        repo.on_branch = len(output) > 0 and returncode == 0
+        repo.current_branch = output if repo.on_branch else "-- No branch --"
 
 
 class GitFetchBranch(GitCommand):
@@ -232,9 +226,6 @@ class GitFetchBranch(GitCommand):
     @staticmethod
     def handle_output(repo: "GitRepo", output: str, returncode: int) -> None:
         repo.has_upstream = returncode == 0
-        if not repo.has_upstream:
-            repo.commits_ahead = "N/A"
-            repo.commits_behind = "N/A"
 
 
 class GitFetchPrune(GitCommand):
@@ -251,10 +242,6 @@ class GitFetchPrune(GitCommand):
     @staticmethod
     def handle_output(repo: "GitRepo", output: str, returncode: int) -> None:
         repo.has_upstream = returncode == 0
-        if not repo.has_upstream:
-            repo.current_branch = "-- No upstream --"
-            repo.commits_ahead = "N/A"
-            repo.commits_behind = "N/A"
 
 
 class GitUpstreamBranch(GitCommand):
@@ -277,9 +264,6 @@ class GitUpstreamBranch(GitCommand):
     def handle_output(repo: "GitRepo", output: str, returncode: int) -> None:
         if returncode == 0:
             repo.upstream_branch = output
-        else:
-            repo.commits_ahead = "N/A"
-            repo.commits_behind = "N/A"
 
 
 class GitCommitsState(GitCommand):
@@ -336,7 +320,7 @@ class GitStatusBranch(GitCommand):
 
     @staticmethod
     def is_relevant(repo: "GitRepo") -> bool:
-        return repo.has_upstream
+        return True
 
     @staticmethod
     def handle_output(repo: "GitRepo", output: str, returncode: int) -> None:
@@ -352,6 +336,9 @@ class GitStatusBranch(GitCommand):
         if result:
             repo.commits_ahead = result[0][0]
             repo.commits_behind = result[0][1]
+        else:
+            repo.commits_ahead = "N/A"
+            repo.commits_behind = "N/A"
 
         result = re.findall(r"^(?!# branch).+", output, re.MULTILINE)
         repo.is_clean = len(result) == 0
