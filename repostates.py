@@ -219,7 +219,7 @@ class GitCurrentBranch(GitCommand):
 
 
 class GitFetchBranch(GitCommand):
-    message = "Fetching branch..."
+    message = "Fetching current branches..."
 
     def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
         command_args = ["git", "fetch", "origin", repo.current_branch]
@@ -328,7 +328,7 @@ class GitStatus(GitCommand):
 class GitStatusBranch(GitCommand):
     "GitFetchPrune required first to detect the case with missing remote branch."
 
-    message = "Getting git status with branch details..."
+    message = "Detailed git status..."
 
     def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
         command_args = ["git", "status", "--porcelain=v2", "--branch"]
@@ -360,7 +360,7 @@ class GitStatusBranch(GitCommand):
 
 
 class GitCheckout(GitCommand):
-    message = "Checkout..."
+    message = "Running git checkout..."
 
     def __init__(self, target_branch: str) -> None:
         self.target_branch = target_branch
@@ -375,11 +375,11 @@ class GitCheckout(GitCommand):
 
     @staticmethod
     def handle_output(repo: "GitRepo", output: str, returncode: int) -> None:
-        print(output)
+        pass
 
 
 class GitPull(GitCommand):
-    message = "Pulling..."
+    message = "Running git pull..."
 
     def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
         command_args = ["git", "pull"]
@@ -391,7 +391,7 @@ class GitPull(GitCommand):
 
     @staticmethod
     def handle_output(repo: "GitRepo", output: str, returncode: int) -> None:
-        print(output)
+        pass
 
 
 class GitRepo:
