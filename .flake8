@@ -1,0 +1,14 @@
+[flake8]
+max-line-length = 89
+percent-greedy = 0
+format-greedy = 0
+ignore = D203
+exclude =
+    .git,
+    __pycache__,
+    docs/source/conf.py,
+    old,
+    build,
+    dist
+    .venv
+max-complexity = 10

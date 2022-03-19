@@ -1,0 +1,9 @@
+[report]
+show_missing = True
+# fail_under = 40
+
+[run]
+branch = True
+omit =
+    tests/*
+    screen.py

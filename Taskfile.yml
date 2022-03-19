@@ -1,0 +1,42 @@
+version: '3'
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  format:
+    desc: run code formatting and static checks
+    cmds:
+      - task: isort
+      - task: black
+      - task: flake8
+      - task: mypy
+
+  lint:
+    desc: check code formatting and run static checks (makes no changes)
+    cmds:
+      - isort --check-only
+      - black --check .
+      - task: flake8
+      - task: mypy
+
+  isort:
+    desc: run isort
+    cmds:
+      - isort
+
+  black:
+    desc: run black
+    cmds:
+      - black .
+
+  flake8:
+    desc: run flake8
+    cmds:
+      - flake8
+
+  mypy:
+    desc: run mypy
+    cmds:
+      - mypy .
