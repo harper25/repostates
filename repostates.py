@@ -25,11 +25,23 @@ def main() -> None:
     ]
     # pipeline = [GitFetchPrune(), GitStatusBranch()]
 
+    present_git_pipeline_flow(pipeline)
+
+    move_coursor_up(len(pipeline))
     for git_command in pipeline:
-        print(git_command.message)
         git_command_executor.run_processes(repos, git_command)
+        print(git_command.message, "\t✓")
 
     present_table_summary(repos)
+
+
+def move_coursor_up(count: int) -> None:
+    sys.stdout.write("\u001b[" + str(count) + "A")
+
+
+def present_git_pipeline_flow(pipeline: List["GitCommand"]) -> None:
+    for git_command in pipeline:
+        print(git_command.message)
 
 
 def present_table_summary(repos: List["GitRepo"]) -> None:
