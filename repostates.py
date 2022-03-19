@@ -5,25 +5,32 @@ import subprocess
 import sys
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 
 def main() -> None:
-    fullpath_start_dir, regex = get_cli_arguments()
-    repos = get_repos(fullpath_start_dir, regex)
+    common_args, flow_args = get_cli_arguments()
+    repos = get_repos(fullpath_start_dir=common_args["dir"], regex=common_args["reg"])
 
     if not repos:
         print(f"{Style.YELLOW}No repos found!{Style.RESET}")
         return
 
     git_command_executor = GitCommandsExecutor()
-    pipeline = [
-        GitCurrentBranch(),
-        GitFetchBranch(),
-        GitUpstreamBranch(),
-        GitCommitsState(),
-    ]
-    # pipeline = [GitFetchPrune(), GitStatusBranch()]
+    # pipeline = [
+    #     GitCurrentBranch(),
+    #     GitFetchBranch(),
+    #     GitUpstreamBranch(),
+    #     GitCommitsState(),
+    # ]
+    pipeline = [GitFetchPrune(), GitStatusBranch()]
+
+    if flow_args["pull"]:
+        pipeline.extend([GitPull(), GitStatusBranch()])
+    elif flow_args["checkout"]:
+        pipeline.extend(
+            [GitCheckout(target_branch=flow_args["checkout"]), GitStatusBranch()]
+        )
 
     present_git_pipeline_flow(pipeline)
 
@@ -75,7 +82,7 @@ def present_table_summary(repos: List["GitRepo"]) -> None:
         )
 
 
-def get_cli_arguments() -> Tuple[str, str]:
+def get_cli_arguments() -> Tuple[Dict[str, Any], Dict[str, Any]]:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "dir",
@@ -86,8 +93,13 @@ def get_cli_arguments() -> Tuple[str, str]:
     parser.add_argument(
         "-r", "--reg", help="regex for filtering repositories to show", default=None
     )
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--pull", action="store_true", default=False)
+    group.add_argument("--checkout", default=None)
     args = parser.parse_args()
-    return os.path.normpath(args.dir), args.reg
+    common_args = {"dir": os.path.abspath(args.dir), "reg": args.reg}
+    flow_args = {k: v for k, v in vars(args).items() if k not in common_args.keys()}
+    return common_args, flow_args
 
 
 def get_repos(fullpath_start_dir: str, regex: str) -> List["GitRepo"]:
