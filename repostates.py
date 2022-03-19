@@ -23,6 +23,7 @@ def main() -> None:
         GitUpstreamBranch(),
         GitCommitsState(),
     ]
+    # pipeline = [GitFetchPrune(), GitStatusBranch()]
 
     for git_command in pipeline:
         print(git_command.message)
@@ -281,14 +282,66 @@ class GitCommitsState(GitCommand):
         repo.commits_behind = behind
 
 
+class GitStatus(GitCommand):
+    message = "Getting git status..."
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        command_args = ["git", "status", "--porcelain=v2"]
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo: "GitRepo") -> bool:
+        return True
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", output: str, returncode: int) -> None:
+        result = re.findall("^(?!# branch).+", output, re.MULTILINE)
+        repo.is_clean = len(result) == 0
+        if not repo.is_clean:
+            repo.current_branch = "*" + repo.current_branch
+
+
+class GitStatusBranch(GitCommand):
+    "GitFetchPrune required first to detect the case with missing remote branch."
+
+    message = "Getting git status with branch details..."
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        command_args = ["git", "status", "--porcelain=v2", "--branch"]
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo: "GitRepo") -> bool:
+        return repo.has_upstream
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", output: str, returncode: int) -> None:
+        result = re.findall(r"# branch.head\s(.*)", output, re.MULTILINE)
+        repo.on_branch = result[0] != "(detached)"
+        repo.current_branch = result[0] if repo.on_branch else "-- No branch --"
+
+        result = re.findall(r"# branch.upstream\s(.*)", output, re.MULTILINE)
+        repo.has_upstream = len(result) > 0
+        repo.upstream_branch = result[0] if repo.has_upstream else None
+
+        result = re.findall(r"# branch.ab\s[+-](\d*)\s[+-](\d*)", output, re.MULTILINE)
+        if result:
+            repo.commits_ahead = result[0][0]
+            repo.commits_behind = result[0][1]
+
+        result = re.findall(r"^(?!# branch).+", output, re.MULTILINE)
+        repo.is_clean = len(result) == 0
+        if not repo.is_clean:
+            repo.current_branch = "*" + repo.current_branch
 class GitRepo:
     def __init__(self, name: str, fullpath: str) -> None:
         self.fullpath = fullpath
         self.name = name
         self.on_branch: bool = False
         self.has_upstream: bool = False
-        self.current_branch = "N/A"
-        self.upstream_branch = "N/A"
+        self.is_clean: bool = False
+        self.current_branch: str = "N/A"
+        self.upstream_branch: str = "N/A"
         self.commits_ahead: str = "N/A"
         self.commits_behind: str = "N/A"
 
