@@ -352,6 +352,24 @@ class GitCheckout(GitCommand):
     @staticmethod
     def handle_output(repo: "GitRepo", output: str, returncode: int) -> None:
         print(output)
+
+
+class GitPull(GitCommand):
+    message = "Pulling..."
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        command_args = ["git", "pull"]
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo: "GitRepo") -> bool:
+        return repo.is_clean
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", output: str, returncode: int) -> None:
+        print(output)
+
+
 class GitRepo:
     def __init__(self, name: str, fullpath: str) -> None:
         self.fullpath = fullpath
