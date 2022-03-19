@@ -19,7 +19,7 @@ def main() -> None:
     git_command_executor = GitCommandsExecutor()
     pipeline = [
         GitCurrentBranch(),
-        GitFetchOrigin(),
+        GitFetchBranch(),
         GitUpstreamBranch(),
         GitCommitsState(),
     ]
@@ -193,8 +193,8 @@ class GitCurrentBranch(GitCommand):
             repo.commits_behind = "N/A"
 
 
-class GitFetchOrigin(GitCommand):
-    message = "Fetching remote state..."
+class GitFetchBranch(GitCommand):
+    message = "Fetching branch..."
 
     def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
         command_args = ["git", "fetch", "origin", repo.current_branch]
@@ -208,6 +208,26 @@ class GitFetchOrigin(GitCommand):
     def handle_output(repo: "GitRepo", output: str, returncode: int) -> None:
         repo.has_upstream = returncode == 0
         if not repo.has_upstream:
+            repo.commits_ahead = "N/A"
+            repo.commits_behind = "N/A"
+
+
+class GitFetchPrune(GitCommand):
+    message = "Fetching origin with prune..."
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        command_args = ["git", "fetch", "origin", "--prune"]
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo: "GitRepo") -> bool:
+        return True
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", output: str, returncode: int) -> None:
+        repo.has_upstream = returncode == 0
+        if not repo.has_upstream:
+            repo.current_branch = "-- No upstream --"
             repo.commits_ahead = "N/A"
             repo.commits_behind = "N/A"
 
