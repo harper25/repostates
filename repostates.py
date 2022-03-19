@@ -333,6 +333,25 @@ class GitStatusBranch(GitCommand):
         repo.is_clean = len(result) == 0
         if not repo.is_clean:
             repo.current_branch = "*" + repo.current_branch
+
+
+class GitCheckout(GitCommand):
+    message = "Checkout..."
+
+    def __init__(self, target_branch: str) -> None:
+        self.target_branch = target_branch
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        command_args = ["git", "checkout", self.target_branch]
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo: "GitRepo") -> bool:
+        return repo.is_clean
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", output: str, returncode: int) -> None:
+        print(output)
 class GitRepo:
     def __init__(self, name: str, fullpath: str) -> None:
         self.fullpath = fullpath
