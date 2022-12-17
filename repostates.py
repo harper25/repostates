@@ -324,6 +324,12 @@ class GitStatusBranch(GitCommand):
 
     @staticmethod
     def handle_output(repo: "GitRepo", output: str, returncode: int) -> None:
+        if returncode != 0:
+            repo.current_branch = "-- No branch --"
+            repo.commits_ahead = "N/A"
+            repo.commits_behind = "N/A"
+            return
+
         result = re.findall(r"# branch.head\s(.*)", output, re.MULTILINE)
         repo.on_branch = result[0] != "(detached)"
         repo.current_branch = result[0] if repo.on_branch else "-- No branch --"
