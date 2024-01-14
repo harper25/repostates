@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import re
 import subprocess
@@ -8,8 +9,12 @@ from enum import Enum
 from typing import Any, Dict, List, Tuple
 
 
+LOGGER = logging.getLogger(os.path.basename(__file__))
+
+
 def main() -> None:
     common_args, flow_args = get_cli_arguments()
+    configure_logger(common_args["verbosity"])
     repos = get_repos(fullpath_start_dir=common_args["dir"], regex=common_args["reg"])
 
     if not repos:
@@ -17,6 +22,11 @@ def main() -> None:
         return
 
     git_command_executor = GitCommandsExecutor()
+    # TODO:
+    # 1. modify commands to pass error to handle functions
+    # 2. comment and move unused functions to retired section
+    # 3. move GitRepo class to the top and change mypy typing across file
+
     # pipeline = [
     #     GitCurrentBranch(),
     #     GitFetchBranch(),
@@ -34,7 +44,7 @@ def main() -> None:
 
     present_git_pipeline_flow(pipeline)
 
-    move_coursor_up(len(pipeline))
+    # move_coursor_up(len(pipeline))
     for git_command in pipeline:
         git_command_executor.run_processes(repos, git_command)
         print(git_command.message, "\t✓")
@@ -47,8 +57,10 @@ def move_coursor_up(count: int) -> None:
 
 
 def present_git_pipeline_flow(pipeline: List["GitCommand"]) -> None:
+    print("\nFollowing actions will be done:")
     for git_command in pipeline:
         print(git_command.message)
+    print()
 
 
 def present_table_summary(repos: List["GitRepo"]) -> None:
@@ -93,11 +105,12 @@ def get_cli_arguments() -> Tuple[Dict[str, Any], Dict[str, Any]]:
     parser.add_argument(
         "-r", "--reg", help="regex for filtering repositories to show", default=None
     )
+    parser.add_argument("--verbose", "-v", action="count", default=0)
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--pull", action="store_true", default=False)
     group.add_argument("--checkout", default=None)
     args = parser.parse_args()
-    common_args = {"dir": os.path.abspath(args.dir), "reg": args.reg}
+    common_args = {"dir": os.path.abspath(args.dir), "reg": args.reg, "verbosity": args.verbose}
     flow_args = {k: v for k, v in vars(args).items() if k not in common_args.keys()}
     return common_args, flow_args
 
@@ -137,6 +150,19 @@ def filter_directories_by_regex(
 
 def is_git_repo(fullpath: str) -> bool:
     return os.path.isdir(os.path.join(fullpath, ".git"))
+
+
+# https://docs.python.org/3/howto/logging.html#when-to-use-logging
+def configure_logger(verbosity):
+    loglevels = ["ERROR", "WARNING", "INFO", "DEBUG"]
+    verified_verbosity = min(verbosity, 3)
+    loglevel = loglevels[verified_verbosity]
+    print(f"{loglevel=}, {verified_verbosity=} {verbosity=}")
+    stream_formatter = logging.Formatter('{levelname:<8s} {message}', style='{')
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(stream_formatter)
+    LOGGER.setLevel(loglevel)
+    LOGGER.addHandler(stream_handler)
 
 
 class GitCommand(ABC):
@@ -189,9 +215,11 @@ class GitCommandsExecutor:
         git_command: GitCommand,
     ) -> None:
         for repo, git_proc in zip(repos, processes):
-            out, _ = git_proc.communicate()
+            out, err = git_proc.communicate()
             output = out.decode().strip()
+            error = err.decode().strip()
             returncode = git_proc.returncode
+            # git_command.handle_output(repo, returncode, output, error) # <-- HERE!!!!
             git_command.handle_output(repo, output, returncode)
 
 
@@ -356,7 +384,11 @@ class GitCheckout(GitCommand):
     message = "Running git checkout..."
 
     def __init__(self, target_branch: str) -> None:
-        self.target_branch = target_branch
+        parsed_target_branch = target_branch.split()[0].split(";")[0]
+        if parsed_target_branch != target_branch:
+            LOGGER.warning(f"Incorrect target branch was given: '{target_branch}'")
+            print(f"Target branch was set to: {parsed_target_branch}")
+        self.target_branch = parsed_target_branch
 
     def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
         command_args = ["git", "checkout", self.target_branch]
@@ -368,6 +400,8 @@ class GitCheckout(GitCommand):
 
     @staticmethod
     def handle_output(repo: "GitRepo", output: str, returncode: int) -> None:
+        if returncode:
+            LOGGER.warning(f"GitCheckout for repo '{repo.name}' returned nonzero code")
         pass
 
 
