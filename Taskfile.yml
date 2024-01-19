@@ -16,7 +16,7 @@ tasks:
   lint:
     desc: check code formatting and run static checks (makes no changes)
     cmds:
-      - isort --check-only
+      - isort . --check --diff
       - black --check .
       - task: flake8
       - task: mypy
@@ -24,7 +24,7 @@ tasks:
   isort:
     desc: run isort
     cmds:
-      - isort
+      - isort .
 
   black:
     desc: run black
