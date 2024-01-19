@@ -6,7 +6,7 @@ import subprocess
 import sys
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 LOGGER = logging.getLogger(os.path.basename(__file__))
 
@@ -454,6 +454,7 @@ class GitRepo:
         self.upstream_branch: str = "N/A"
         self.commits_ahead: str = "N/A"
         self.commits_behind: str = "N/A"
+        self.gone_branches: Optional[List[str]] = None
 
     @property
     def status(self) -> "Status":
