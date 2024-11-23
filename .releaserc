@@ -1,0 +1,38 @@
+{
+  "branches": "main",
+  "private": true,
+  "tagFormat": "${version}",
+  "debug": "false",
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "angular",
+        "releaseRules": [
+          { "type": "break", "release": "major" },
+          { "type": "build", "release": "minor" },
+          { "type": "ci", "release": "patch" },
+          { "type": "docs", "release": "patch" },
+          { "type": "refactor", "release": "minor" },
+          { "scope": "revert", "release": "patch" },
+          { "scope": "style", "release": "patch" },
+          { "scope": "test", "release": "patch" }
+        ]
+      }
+    ],
+    "@semantic-release/release-notes-generator",
+    [
+      "@semantic-release/changelog",
+      {
+        "changelogFile": "CHANGELOG.md",
+        "changelogTitle": "# Changelog"
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": ["CHANGELOG.md"]
+      }
+    ]
+  ]
+}
