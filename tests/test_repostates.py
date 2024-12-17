@@ -20,8 +20,10 @@ def test_git_commands_executor_setup_processes():
 
 
 def test_git_commands_executor_handle_processes():
-    repos = ["repo1"]
+    mocked_repo_1 = MagicMock(name="repo1")
+    repos = [mocked_repo_1]
     git_command_mock = MagicMock()
+
     git_process = MagicMock()
     bytes_output = b"0 0\n"
     git_process.communicate.return_value = [bytes_output, b""]
@@ -31,7 +33,9 @@ def test_git_commands_executor_handle_processes():
     git_commands_executor._handle_processes(repos, [git_process], git_command_mock)
 
     assert git_command_mock.handle_output.call_count == 1
-    assert git_command_mock.handle_output.mock_calls == [call("repo1", 0, "0 0", "")]
+    assert git_command_mock.handle_output.mock_calls == [
+        call(mocked_repo_1, 0, "0 0", "")
+    ]
 
 
 def test_file_exists():

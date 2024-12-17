@@ -5,49 +5,96 @@ import re
 import subprocess
 import sys
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 LOGGER = logging.getLogger(os.path.basename(__file__))
 
 
+@dataclass
+class CommonArgs:
+    working_dir: str
+    regex: str
+    logger_verbosity: int
+
+
 def main() -> None:
-    common_args, flow_args = get_cli_arguments()
-    configure_logger(common_args["verbosity"])
-    repos = get_repos(fullpath_start_dir=common_args["dir"], regex=common_args["reg"])
+    parser = create_arg_parser()
+    common_args, flow_args = get_cli_arguments(parser)
+    configure_logger(common_args.logger_verbosity)
+    repos = get_repos(
+        fullpath_start_dir=common_args.working_dir, regex=common_args.regex
+    )
 
     if not repos:
         print(f"{Style.YELLOW}No repos found!{Style.RESET}")
         return
 
+    # pipeline generator
+    pipeline = generate_git_pipeline(flow_args)
     git_command_executor = GitCommandsExecutor()
-    pipeline = [GitFetchPrune(), GitStatusBranch()]
-    # pipeline = [GitFetchPrune(), GitStatusBranch(), GitGoneBranches()]
 
+    # pipeline execution
+    for git_command in pipeline:
+        print(f"{Style.MAGENTA}{git_command.message}{Style.RESET}")
+        git_command_executor.run_processes(repos, git_command)
+        print(f"{Style.MAGENTA}{Style.BRIGHT}{git_command.message}\t✓{Style.RESET}")
+
+    # presentation layer - results, summary
+    if flow_args["branches"]:
+        present_gone_branches(repos)
+    else:
+        present_table_summary(repos)
+
+
+def create_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "dir",
+        nargs="?",
+        help="directory with your git repositories, defaults to the current directory",
+        default=os.getcwd(),
+    )
+    parser.add_argument(
+        "-r", "--reg", help="regex for filtering repositories to show", default=None
+    )
+    parser.add_argument("--verbose", "-v", action="count", default=0)
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--pull", action="store_true", default=False)
+    group.add_argument("--checkout", default=None)
+    group.add_argument("--branches", action="store_true", default=False)
+    return parser
+
+
+def get_cli_arguments(
+    parser: argparse.ArgumentParser, input_args: Optional[List[str]] = None
+) -> Tuple[CommonArgs, Dict[str, Any]]:
+    args = parser.parse_args(input_args)
+
+    common_args = CommonArgs(
+        working_dir=os.path.abspath(args.dir),
+        regex=args.reg,
+        logger_verbosity=args.verbose,
+    )
+    return common_args, vars(args)
+
+
+def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:
+    pipeline = [GitFetchPrune(), GitStatusBranch()]
     if flow_args["pull"]:
         pipeline.extend([GitPull(), GitStatusBranch()])
     elif flow_args["checkout"]:
         pipeline.extend(
             [GitCheckout(target_branch=flow_args["checkout"]), GitStatusBranch()]
         )
-
-    for git_command in pipeline:
-        print(git_command.message)
-        git_command_executor.run_processes(repos, git_command)
-        print(git_command.message, "\t✓")
-
-    present_table_summary(repos)
+    elif flow_args["branches"]:
+        pipeline.append(GitGoneBranches())
+    return pipeline
 
 
 def move_coursor_up(count: int) -> None:
     sys.stdout.write("\u001b[" + str(count) + "A")
-
-
-def present_git_pipeline_flow(pipeline: List["GitCommand"]) -> None:
-    print("\nFollowing actions will be done:")
-    for git_command in pipeline:
-        print(git_command.message)
-    print()
 
 
 def present_table_summary(repos: List["GitRepo"]) -> None:
@@ -81,29 +128,17 @@ def present_table_summary(repos: List["GitRepo"]) -> None:
         )
 
 
-def get_cli_arguments() -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "dir",
-        nargs="?",
-        help="directory with your git repositories, defaults to the current directory",
-        default=os.getcwd(),
-    )
-    parser.add_argument(
-        "-r", "--reg", help="regex for filtering repositories to show", default=None
-    )
-    parser.add_argument("--verbose", "-v", action="count", default=0)
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--pull", action="store_true", default=False)
-    group.add_argument("--checkout", default=None)
-    args = parser.parse_args()
-    common_args = {
-        "dir": os.path.abspath(args.dir),
-        "reg": args.reg,
-        "verbosity": args.verbose,
-    }
-    flow_args = {k: v for k, v in vars(args).items() if k not in common_args.keys()}
-    return common_args, flow_args
+def present_gone_branches(repos: List["GitRepo"]) -> None:
+    print(f"\n{Style.BLUE}ALREADY GONE BRANCHES:{Style.RESET}\n")
+    for repo in repos:
+        print(f"{Style.GREEN}{repo.name}{Style.RESET}")
+        if repo.gone_branches:
+            for branch_candidate_to_delete in repo.gone_branches:
+                print(f"  {Style.RED}↳ {branch_candidate_to_delete}{Style.RESET}")
+
+
+def indent_multiline_log(message: str) -> str:
+    return message.replace("\n", "\n\t")
 
 
 def get_repos(fullpath_start_dir: str, regex: str) -> List["GitRepo"]:
@@ -188,7 +223,13 @@ class GitCommand(ABC):
 
 class GitCommandsExecutor:
     def run_processes(self, repos: List["GitRepo"], git_command: GitCommand) -> None:
-        elligible_repos = [repo for repo in repos if git_command.is_relevant(repo)]
+        elligible_repos = []
+        for repo in repos:
+            if not git_command.is_relevant(repo):
+                LOGGER.debug(
+                    f"Skipping {git_command.__class__.__name__} for {repo.name}"
+                )
+            elligible_repos.append(repo)
         git_procs = self._setup_processes(elligible_repos, git_command)
         self._handle_processes(elligible_repos, git_procs, git_command)
 
@@ -214,7 +255,15 @@ class GitCommandsExecutor:
             output = out.decode().strip()
             error = err.decode().strip()
             if error:
-                LOGGER.debug(f"{git_proc=} {error=}")
+                LOGGER.warning(
+                    f"{git_command.__class__.__name__} for {repo.name}:\n\terror code: "
+                    f"{returncode}\n\t{indent_multiline_log(error)}"
+                )
+            if output:
+                LOGGER.debug(
+                    f"{git_command.__class__.__name__} output for {repo.name}:"
+                    f"\n\t{indent_multiline_log(output)}"
+                )
             git_command.handle_output(repo, returncode, output, error)
 
 
@@ -483,7 +532,13 @@ class Style:
     MAGENTA = "\033[35m"
     CYAN = "\033[36m"
     WHITE = "\033[37m"
+
+    BRIGHT = "\033[1m"
+    DIM = "\033[2m"
+    ITALICS = "\033[3m"
     UNDERLINE = "\033[4m"
+    NORMAL = "\033[22m"
+
     RESET = "\033[0m"
 
 

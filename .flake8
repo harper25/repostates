@@ -11,4 +11,5 @@ exclude =
     build,
     dist
     .venv
+    tests/test_parser.py
 max-complexity = 10

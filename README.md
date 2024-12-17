@@ -11,7 +11,7 @@ The script *fetches* origin for each repository and then displays the following 
 
 ### Background story
 
-Basically, when I wanted to run integration tests locally for a project with microservice architecture (with Docker and docker-compose) I always had to check every repository if the branch is correct and up to date (new commits from other developers). That meant either running multiple commands from the terminal or clicking through a Git client UI. 
+Basically, when I wanted to run integration tests locally for a project with microservice architecture (with Docker and docker-compose) I always had to check every repository if the branch is correct and up to date (new commits from other developers). That meant either running multiple commands from the terminal or clicking through a Git client UI.
 This project was created to overcome this inconvenience by automating repetitive actions with a simple command line utility.
 The tool, when run, presents a short summary in a table format which shows which repositories are up-to-date and which ones have to be updated or investigated more carefully.
 
@@ -55,6 +55,15 @@ Two cli parameters are available in the tool:
     repostates -r '\-api-'
     repostates -r '^((?!test).)*$'
     ```
+
+## Alternatives
+
+- https://github.com/tj/git-extras git-bulk
+- https://github.com/nosarthur/gita
+- https://github.com/gruntwork-io/git-xargs
+- https://github.com/GerritCodeReview/git-repo
+- https://github.com/mnagel/clustergit
+- https://github.com/lukasz-lobocki/gitas
 
 ## License
 
