@@ -137,6 +137,8 @@ def present_gone_branches(repos: List["GitRepo"]) -> None:
                 print(f"  {Style.RED}↳ {branch_candidate_to_delete}{Style.RESET}")
 
 
+def indent_multiline_log(message: str) -> str:
+    return message.replace("\n", "\n\t")
 
 
 def get_repos(fullpath_start_dir: str, regex: str) -> List["GitRepo"]:
@@ -221,7 +223,13 @@ class GitCommand(ABC):
 
 class GitCommandsExecutor:
     def run_processes(self, repos: List["GitRepo"], git_command: GitCommand) -> None:
-        elligible_repos = [repo for repo in repos if git_command.is_relevant(repo)]
+        elligible_repos = []
+        for repo in repos:
+            if not git_command.is_relevant(repo):
+                LOGGER.debug(
+                    f"Skipping {git_command.__class__.__name__} for {repo.name}"
+                )
+            elligible_repos.append(repo)
         git_procs = self._setup_processes(elligible_repos, git_command)
         self._handle_processes(elligible_repos, git_procs, git_command)
 
@@ -247,7 +255,15 @@ class GitCommandsExecutor:
             output = out.decode().strip()
             error = err.decode().strip()
             if error:
-                LOGGER.debug(f"{git_proc=} {error=}")
+                LOGGER.warning(
+                    f"{git_command.__class__.__name__} for {repo.name}:\n\terror code: "
+                    f"{returncode}\n\t{indent_multiline_log(error)}"
+                )
+            if output:
+                LOGGER.debug(
+                    f"{git_command.__class__.__name__} output for {repo.name}:"
+                    f"\n\t{indent_multiline_log(output)}"
+                )
             git_command.handle_output(repo, returncode, output, error)
 
 
