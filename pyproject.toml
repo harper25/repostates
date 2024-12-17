@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "microservices-git-state"
-version = "0.1.0"
+version = "1.1.0"
 description = ""
 authors = ["harper25 <olesjakubb@gmail.com>"]
 license = "MIT"
@@ -69,7 +69,8 @@ exclude = [
     'two\.pyi$',  # but TOML's single-quoted strings do not
     '^three\.',
     'screen.py',
-    'tool.py'
+    'tool.py',
+    'tests/test_parser.py',
 ]
 disallow_untyped_defs = true
 warn_redundant_casts = true
