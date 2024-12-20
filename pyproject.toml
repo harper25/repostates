@@ -4,6 +4,7 @@ version = "1.1.0"
 description = ""
 authors = ["harper25 <olesjakubb@gmail.com>"]
 license = "MIT"
+package-mode = false
 
 [tool.poetry.dependencies]
 python = ">=3.8.1"
@@ -15,7 +16,7 @@ flake8 = "^7.0.0"
 flake8-isort = "^6.0.0"
 flake8-use-fstring = "^1.3"
 flake8-comprehensions = "^3.8.0"
-black = "^23.0.0"
+black = "^24.0.0"
 mypy = "^1.0.0"
 
 [build-system]
@@ -60,6 +61,7 @@ exclude = '''
   )/
   | foo.py           # also separately exclude a file named foo.py in
   | tool.py          # the root of the project
+  | tests/_test_parser.py          # the root of the project
 )
 '''
 
@@ -70,7 +72,7 @@ exclude = [
     '^three\.',
     'screen.py',
     'tool.py',
-    'tests/test_parser.py',
+    'tests/_test_parser.py',
 ]
 disallow_untyped_defs = true
 warn_redundant_casts = true
