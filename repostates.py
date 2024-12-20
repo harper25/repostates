@@ -42,7 +42,7 @@ def main() -> None:
         print(f"{Style.MAGENTA}{Style.BRIGHT}{git_command.message}\t✓{Style.RESET}")
 
     # presentation layer - results, summary
-    if flow_args["branches"]:
+    if flow_args["command"] == "gone-branches":
         present_gone_branches(repos)
     else:
         present_table_summary(repos)
@@ -51,7 +51,8 @@ def main() -> None:
 def create_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "dir",
+        "-d",
+        "--dir",
         nargs="?",
         help="directory with your git repositories, defaults to the current directory",
         default=os.getcwd(),
@@ -60,10 +61,25 @@ def create_arg_parser() -> argparse.ArgumentParser:
         "-r", "--reg", help="regex for filtering repositories to show", default=None
     )
     parser.add_argument("--verbose", "-v", action="count", default=0)
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--pull", action="store_true", default=False)
-    group.add_argument("--checkout", default=None)
-    group.add_argument("--branches", action="store_true", default=False)
+    subparsers = parser.add_subparsers(dest="command", help="choose a command to run")
+    parser_status = subparsers.add_parser(  # noqa: F841
+        "status", help="run git status (default)"
+    )
+    parser_pull = subparsers.add_parser("pull", help="run git pull")  # noqa: F841
+    parser_checkout = subparsers.add_parser("checkout", help="run git checkout")
+    parser_checkout.add_argument("target_branch", help="branch to checkout to")
+    parser_branch = subparsers.add_parser(
+        "gone-branches", help="find already gone branches, default action is list"
+    )
+    parser_branch.add_argument(
+        "subcommand",
+        nargs="?",
+        choices=["list"],
+        default="list",
+        help="choose action to perform on gone branches",
+    )
+    parser.set_defaults(command="status")
+
     return parser
 
 
@@ -82,13 +98,13 @@ def get_cli_arguments(
 
 def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:
     pipeline = [GitFetchPrune(), GitStatusBranch()]
-    if flow_args["pull"]:
+    if flow_args["command"] == "pull":
         pipeline.extend([GitPull(), GitStatusBranch()])
-    elif flow_args["checkout"]:
+    elif flow_args["command"] == "checkout":
         pipeline.extend(
-            [GitCheckout(target_branch=flow_args["checkout"]), GitStatusBranch()]
+            [GitCheckout(target_branch=flow_args["target_branch"]), GitStatusBranch()]
         )
-    elif flow_args["branches"]:
+    elif flow_args["command"] == "gone-branches":
         pipeline.append(GitGoneBranches())
     return pipeline
 
