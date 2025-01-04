@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import re
+import shlex
 import subprocess
 import sys
 from abc import ABC, abstractmethod
@@ -42,7 +43,7 @@ def main() -> None:
         print(f"{Style.MAGENTA}{Style.BRIGHT}{git_command.message}\t✓{Style.RESET}")
 
     # presentation layer - results, summary
-    if flow_args["branches"]:
+    if flow_args["command"] == "gone-branches":
         present_gone_branches(repos)
     else:
         present_table_summary(repos)
@@ -51,7 +52,8 @@ def main() -> None:
 def create_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "dir",
+        "-d",
+        "--dir",
         nargs="?",
         help="directory with your git repositories, defaults to the current directory",
         default=os.getcwd(),
@@ -60,10 +62,27 @@ def create_arg_parser() -> argparse.ArgumentParser:
         "-r", "--reg", help="regex for filtering repositories to show", default=None
     )
     parser.add_argument("--verbose", "-v", action="count", default=0)
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--pull", action="store_true", default=False)
-    group.add_argument("--checkout", default=None)
-    group.add_argument("--branches", action="store_true", default=False)
+    subparsers = parser.add_subparsers(dest="command", help="choose a command to run")
+    parser_status = subparsers.add_parser(  # noqa: F841
+        "status", help="run git status (default)"
+    )
+    parser_pull = subparsers.add_parser("pull", help="run git pull")  # noqa: F841
+    parser_checkout = subparsers.add_parser("checkout", help="run git checkout")
+    parser_checkout.add_argument("target_branch", help="branch to checkout to")
+    parser_branch = subparsers.add_parser(
+        "gone-branches", help="find already gone branches, default action is list"
+    )
+    parser_branch.add_argument(
+        "subcommand",
+        nargs="?",
+        choices=["list"],
+        default="list",
+        help="choose action to perform on gone branches",
+    )
+    parser_shell = subparsers.add_parser("shell", help="run arbitrary shell command")
+    parser_shell.add_argument("custom_command", help="custom shell command to run")
+    parser.set_defaults(command="status")
+
     return parser
 
 
@@ -82,14 +101,21 @@ def get_cli_arguments(
 
 def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:
     pipeline = [GitFetchPrune(), GitStatusBranch()]
-    if flow_args["pull"]:
+    if flow_args["command"] == "pull":
         pipeline.extend([GitPull(), GitStatusBranch()])
-    elif flow_args["checkout"]:
+    elif flow_args["command"] == "checkout":
         pipeline.extend(
-            [GitCheckout(target_branch=flow_args["checkout"]), GitStatusBranch()]
+            [GitCheckout(target_branch=flow_args["target_branch"]), GitStatusBranch()]
         )
-    elif flow_args["branches"]:
+    elif flow_args["command"] == "gone-branches":
         pipeline.append(GitGoneBranches())
+    elif flow_args["command"] == "shell":
+        pipeline.extend(
+            [
+                CustomCommand(custom_command=flow_args["custom_command"]),
+                GitStatusBranch(),
+            ]
+        )
     return pipeline
 
 
@@ -229,6 +255,7 @@ class GitCommandsExecutor:
                 LOGGER.debug(
                     f"Skipping {git_command.__class__.__name__} for {repo.name}"
                 )
+                continue
             elligible_repos.append(repo)
         git_procs = self._setup_processes(elligible_repos, git_command)
         self._handle_processes(elligible_repos, git_procs, git_command)
@@ -365,8 +392,28 @@ class GitCheckout(GitCommand):
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
-        if returncode:
-            LOGGER.warning(f"GitCheckout for repo '{repo.name}' returned nonzero code")
+        # maybe set some flag?
+        pass
+
+
+class CustomCommand(GitCommand):  # fix inheritance
+    # save output and error and error code? per repo per command?...
+    def __init__(self, custom_command: str) -> None:
+        self.custom_command = custom_command
+        self.message = f"Running custom command: {custom_command}"
+        LOGGER.info(f"Custom command: {custom_command}")
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        command_args = shlex.split(self.custom_command)
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo: "GitRepo") -> bool:
+        return True
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
+        # maybe set some flag?
         pass
 
 

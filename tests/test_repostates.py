@@ -1,9 +1,12 @@
 import os
+from argparse import Namespace
 from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from repostates import GitCommandsExecutor, GitRepo, get_repos
+from repostates import GitCommandsExecutor, GitRepo, create_arg_parser, get_repos
+
+WORKING_DIR = os.getcwd()
 
 
 def test_git_commands_executor_setup_processes():
@@ -66,3 +69,62 @@ def test_get_repos(isdir, result):
         ):
             repos = get_repos(fullpath_start_dir="project_dir", regex=None)
             assert repos == result
+
+
+@pytest.mark.parametrize(
+    "input_args,result",
+    [
+        (
+            [],
+            Namespace(dir=WORKING_DIR, reg=None, verbose=0, command="status"),
+        ),
+        (
+            ["--dir", "/root"],
+            Namespace(dir="/root", reg=None, verbose=0, command="status"),
+        ),
+        (
+            ["-vvv"],
+            Namespace(dir=WORKING_DIR, reg=None, verbose=3, command="status"),
+        ),
+        (
+            ["--reg", "designs|documentation"],
+            Namespace(
+                dir=WORKING_DIR, reg="designs|documentation", verbose=0, command="status"
+            ),
+        ),
+        (
+            ["--reg", "designs|documentation", "status"],
+            Namespace(
+                dir=WORKING_DIR, reg="designs|documentation", verbose=0, command="status"
+            ),
+        ),
+        (
+            ["pull"],
+            Namespace(dir=WORKING_DIR, reg=None, verbose=0, command="pull"),
+        ),
+        (
+            ["checkout", "development"],
+            Namespace(
+                dir=WORKING_DIR,
+                reg=None,
+                verbose=0,
+                command="checkout",
+                target_branch="development",
+            ),
+        ),
+        (
+            ["gone-branches"],
+            Namespace(
+                dir=WORKING_DIR,
+                reg=None,
+                verbose=0,
+                command="gone-branches",
+                subcommand="list",
+            ),
+        ),
+    ],
+)
+def test_create_arg_parser(input_args, result):
+    parser = create_arg_parser()
+    args = parser.parse_args(input_args)
+    assert args == result
