@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import re
+import shlex
 import subprocess
 import sys
 from abc import ABC, abstractmethod
@@ -78,6 +79,8 @@ def create_arg_parser() -> argparse.ArgumentParser:
         default="list",
         help="choose action to perform on gone branches",
     )
+    parser_shell = subparsers.add_parser("shell", help="run arbitrary shell command")
+    parser_shell.add_argument("custom_command", help="custom shell command to run")
     parser.set_defaults(command="status")
 
     return parser
@@ -106,6 +109,13 @@ def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:
         )
     elif flow_args["command"] == "gone-branches":
         pipeline.append(GitGoneBranches())
+    elif flow_args["command"] == "shell":
+        pipeline.extend(
+            [
+                CustomCommand(custom_command=flow_args["custom_command"]),
+                GitStatusBranch(),
+            ]
+        )
     return pipeline
 
 
@@ -245,6 +255,7 @@ class GitCommandsExecutor:
                 LOGGER.debug(
                     f"Skipping {git_command.__class__.__name__} for {repo.name}"
                 )
+                continue
             elligible_repos.append(repo)
         git_procs = self._setup_processes(elligible_repos, git_command)
         self._handle_processes(elligible_repos, git_procs, git_command)
@@ -381,8 +392,28 @@ class GitCheckout(GitCommand):
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
-        if returncode:
-            LOGGER.warning(f"GitCheckout for repo '{repo.name}' returned nonzero code")
+        # maybe set some flag?
+        pass
+
+
+class CustomCommand(GitCommand):  # fix inheritance
+    # save output and error and error code? per repo per command?...
+    def __init__(self, custom_command: str) -> None:
+        self.custom_command = custom_command
+        self.message = f"Running custom command: {custom_command}"
+        LOGGER.info(f"Custom command: {custom_command}")
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        command_args = shlex.split(self.custom_command)
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo: "GitRepo") -> bool:
+        return True
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
+        # maybe set some flag?
         pass
 
 

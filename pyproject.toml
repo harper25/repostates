@@ -72,6 +72,7 @@ exclude = [
     '^three\.',
     'screen.py',
     'tool.py',
+    'tool0.py',
     'tests/_test_parser.py',
 ]
 disallow_untyped_defs = true
