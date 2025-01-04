@@ -44,17 +44,27 @@ Then, the best option to run the tool is to clone the repository and:
 
 ## Usage
 
-Two cli parameters are available in the tool:
+```bash
+$ repostates --help
 
-- `dir` - positional argument, directory with your git repositories to check (defaults to the current directory):
-    ```sh
-    repostates /Users/me/projects
-    ```
-- `-r REG, --reg REG` - optional regex for filtering repositories to show (in case you would like to check only a subset of repositories):
-    ```sh
-    repostates -r '\-api-'
-    repostates -r '^((?!test).)*$'
-    ```
+usage: repostates.py [-h] [-d [DIR]] [-r REG] [--verbose] {status,pull,checkout,gone-branches,shell} ...
+
+positional arguments:
+  {status,pull,checkout,gone-branches,shell}
+                        choose a command to run
+    status              run git status (default)
+    pull                run git pull
+    checkout            run git checkout
+    gone-branches       find already gone branches, default action is list
+    shell               run arbitrary shell command
+
+options:
+  -h, --help            show this help message and exit
+  -d [DIR], --dir [DIR]
+                        directory with your git repositories, defaults to the current directory
+  -r REG, --reg REG     regex for filtering repositories to show
+  --verbose, -v
+```
 
 ## Alternatives
 
