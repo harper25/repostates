@@ -283,12 +283,12 @@ class GitCommandsExecutor:
             error = err.decode().strip()
             if error:
                 LOGGER.warning(
-                    f"{git_command.__class__.__name__} for {repo.name}:\n\terror code: "
+                    f"{Style.GREEN}{git_command.__class__.__name__}{Style.RESET} for {Style.GREEN}{repo.name}{Style.RESET}:\n\terror code: "
                     f"{returncode}\n\t{indent_multiline_log(error)}"
                 )
             if output:
                 LOGGER.debug(
-                    f"{git_command.__class__.__name__} output for {repo.name}:"
+                    f"{Style.GREEN}{git_command.__class__.__name__}{Style.RESET} output for {Style.GREEN}{repo.name}{Style.RESET}:"
                     f"\n\t{indent_multiline_log(output)}"
                 )
             git_command.handle_output(repo, returncode, output, error)
