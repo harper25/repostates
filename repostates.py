@@ -59,7 +59,10 @@ def create_arg_parser() -> argparse.ArgumentParser:
         default=os.getcwd(),
     )
     parser.add_argument(
-        "-r", "--reg", help="regex for filtering repositories to show", default=None
+        "-r",
+        "--reg",
+        help="regex for filtering repositories to show",
+        default=None,
     )
     parser.add_argument("--verbose", "-v", action="count", default=0)
     subparsers = parser.add_subparsers(dest="command", help="choose a command to run")
@@ -326,7 +329,9 @@ class GitStatus(GitCommand):
         result = re.findall("^(?!# branch).+", output, re.MULTILINE)
         repo.is_clean = len(result) == 0
         if not repo.is_clean:
-            repo.current_branch = "*" + repo.current_branch
+            repo.current_branch = (
+                "*" + repo.current_branch
+            )  # should be moved to view layer
 
 
 class GitStatusBranch(GitCommand):
@@ -340,10 +345,12 @@ class GitStatusBranch(GitCommand):
 
     @staticmethod
     def is_relevant(repo: "GitRepo") -> bool:
-        return True
+        return True  # set and use repo.has_upstream
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
+        # if git fetch returns non zero then git status is not applicable!
+        # test only local repo, when upstream is gone
         if returncode != 0:
             repo.current_branch = "-- No branch --"
             repo.commits_ahead = "N/A"
@@ -369,7 +376,9 @@ class GitStatusBranch(GitCommand):
         result = re.findall(r"^(?!# branch).+", output, re.MULTILINE)
         repo.is_clean = len(result) == 0
         if not repo.is_clean:
-            repo.current_branch = "*" + repo.current_branch
+            repo.current_branch = (
+                "*" + repo.current_branch
+            )  # should be moved to view layer
 
 
 class GitCheckout(GitCommand):
@@ -430,8 +439,7 @@ class GitPull(GitCommand):
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
-        if returncode:
-            LOGGER.warning(f"GitCheckout for repo '{repo.name}' returned nonzero code")
+        # maybe set some flag?
         pass
 
 
@@ -444,7 +452,7 @@ class GitGoneBranches(GitCommand):
 
     @staticmethod
     def is_relevant(repo: "GitRepo") -> bool:
-        return True
+        return True  # ?
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
@@ -543,10 +551,10 @@ class GitRepo:
     def __init__(self, name: str, fullpath: str) -> None:
         self.fullpath = fullpath
         self.name = name
-        self.on_branch: bool = False
+        self.on_branch: bool = False  # can be on tag
         self.has_upstream: bool = False
         self.is_clean: bool = False
-        self.current_branch: str = "N/A"
+        self.current_branch: str = "N/A"  # None - move display logic to view layer
         self.upstream_branch: str = "N/A"
         self.commits_ahead: str = "N/A"
         self.commits_behind: str = "N/A"
