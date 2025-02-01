@@ -265,9 +265,7 @@ class GitCommandsExecutor:
         elligible_repos = []
         for repo in repos:
             if not git_command.is_relevant(repo):
-                LOGGER.debug(
-                    f"Skipping {git_command.__class__.__name__} for {repo.name}"
-                )
+                LOGGER.info(f"Skipping {git_command.__class__.__name__} for {repo.name}")
                 continue
             elligible_repos.append(repo)
         git_procs = self._setup_processes(elligible_repos, git_command)
@@ -294,15 +292,18 @@ class GitCommandsExecutor:
             returncode = git_proc.returncode
             output = out.decode().strip()
             error = err.decode().strip()
-            if error:
-                LOGGER.warning(
-                    f"{Style.GREEN}{git_command.__class__.__name__}{Style.RESET} for {Style.GREEN}{repo.name}{Style.RESET}:\n\terror code: "
-                    f"{returncode}\n\t{indent_multiline_log(error)}"
-                )
-            if output:
+            msg = output or error
+            if returncode == 0 and msg:
                 LOGGER.debug(
-                    f"{Style.GREEN}{git_command.__class__.__name__}{Style.RESET} output for {Style.GREEN}{repo.name}{Style.RESET}:"
-                    f"\n\t{indent_multiline_log(output)}"
+                    f"{Style.GREEN}{git_command.__class__.__name__}{Style.RESET} "
+                    f"for {Style.GREEN}{repo.name}{Style.RESET}:"
+                    f"\n\t{indent_multiline_log(msg)}"
+                )
+            elif msg:
+                LOGGER.warning(
+                    f"{Style.GREEN}{git_command.__class__.__name__}{Style.RESET}"
+                    f" for {Style.GREEN}{repo.name}{Style.RESET}:\n\terror code: "
+                    f"{returncode}\n\t{indent_multiline_log(msg)}"
                 )
             git_command.handle_output(repo, returncode, output, error)
 
