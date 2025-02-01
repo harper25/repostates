@@ -7,7 +7,7 @@ import subprocess
 import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Tuple
 
 LOGGER = logging.getLogger(os.path.basename(__file__))
@@ -70,10 +70,26 @@ def create_arg_parser() -> argparse.ArgumentParser:
         help="regex for filtering repositories to show",
         default=None,
     )
-    parser.add_argument("--verbose", "-v", action="count", default=0)
+    parser.add_argument(
+        "--verbose", "-v", action="count", default=0, help="increase verbosity"
+    )
+    parser.add_argument(
+        "--no-fetch",
+        "-n",
+        default=False,
+        action="store_true",
+        help="do not fetch before status",
+    )
     subparsers = parser.add_subparsers(dest="command", help="choose a command to run")
     parser_status = subparsers.add_parser(  # noqa: F841
         "status", help="run git status (default)"
+    )
+    parser_status.add_argument(
+        "--no-fetch",
+        "-n",
+        default=False,
+        action="store_true",
+        help="do not fetch before status",
     )
     parser_pull = subparsers.add_parser("pull", help="run git pull")  # noqa: F841
     parser_checkout = subparsers.add_parser("checkout", help="run git checkout")
@@ -113,22 +129,23 @@ def get_cli_arguments(
 
 
 def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:
-    pipeline = [GitFetchPrune(), GitStatusBranch()]
-    if flow_args["command"] == "pull":
-        pipeline.extend([GitPull(), GitStatusBranch()])
+    pipeline = [GitFetchPrune(), GitStatusBranch(), GitDescribe()]
+    if flow_args["command"] == "status" and flow_args["no_fetch"]:
+        return [GitStatusBranch(), GitDescribe()]
+    elif flow_args["command"] == "pull":
+        pipeline.extend([GitPull(), GitStatusBranch(), GitDescribe()])
     elif flow_args["command"] == "checkout":
         pipeline.extend(
-            [GitCheckout(target_branch=flow_args["target_branch"]), GitStatusBranch()]
+            [
+                GitCheckout(target_branch=flow_args["target_branch"]),
+                GitStatusBranch(),
+                GitDescribe(),
+            ]
         )
     elif flow_args["command"] == "gone-branches":
         pipeline.append(GitGoneBranches())
     elif flow_args["command"] == "shell":
-        pipeline.extend(
-            [
-                CustomCommand(custom_command=flow_args["custom_command"]),
-                GitStatusBranch(),
-            ]
-        )
+        return [CustomCommand(custom_command=flow_args["custom_command"])]
     return pipeline
 
 
@@ -340,25 +357,22 @@ class GitFetchPrune(GitCommand):
         repo.has_upstream = returncode == 0
 
 
-class GitStatus(GitCommand):
-    message = "Getting git status..."
+class GitDescribe(GitCommand):
+    message = "Checking tags..."
 
     def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
-        command_args = ["git", "status", "--porcelain=v2"]
+        command_args = shlex.split("git describe --tags --exact-match")
         return self.popen_process(command_args, path=repo.fullpath)
 
     @staticmethod
     def is_relevant(repo: "GitRepo") -> bool:
-        return True
+        return repo.ref_type == GitRefType.DETACHED
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
-        result = re.findall("^(?!# branch).+", output, re.MULTILINE)
-        repo.is_clean = len(result) == 0
-        if not repo.is_clean:
-            repo.current_branch = (
-                "*" + repo.current_branch
-            )  # should be moved to view layer
+        if returncode == 0:
+            repo.ref_type = GitRefType.TAG
+            repo.ref = f"tags/{output}"
 
 
 class GitStatusBranch(GitCommand):
