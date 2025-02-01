@@ -45,6 +45,12 @@ def main() -> None:
     # presentation layer - results, summary
     if flow_args["command"] == "gone-branches":
         present_gone_branches(repos)
+    elif flow_args["command"] == "shell":
+        print(f"\n{Style.CYAN}CUSTOM SHELL COMMAND OUTPUT:{Style.RESET}\n")
+        for repo in repos:
+            print(f"{Style.GREEN}{repo.name}{Style.RESET}")
+            print(f"{repo.custom_cmd_output}")
+            print(f"{Style.RED}{repo.custom_cmd_error}{Style.RESET}")
     else:
         present_table_summary(repos)
 
@@ -82,8 +88,12 @@ def create_arg_parser() -> argparse.ArgumentParser:
         default="list",
         help="choose action to perform on gone branches",
     )
-    parser_shell = subparsers.add_parser("shell", help="run arbitrary shell command")
-    parser_shell.add_argument("custom_command", help="custom shell command to run")
+    parser_shell = subparsers.add_parser(
+        "shell", help="run arbitrary shell command - enclose in quotes"
+    )
+    parser_shell.add_argument(
+        "custom_command", help="custom shell command to run - remember about quotes"
+    )
     parser.set_defaults(command="status")
 
     return parser
@@ -484,6 +494,9 @@ class GitCurrentBranch(GitCommand):
         repo.on_branch = len(output) > 0 and returncode == 0
         repo.current_branch = output if repo.on_branch else "-- No branch --"
 
+        repo.custom_cmd_return_code = returncode
+        repo.custom_cmd_output = output
+        repo.custom_cmd_error = error
 
 class GitFetchBranch(GitCommand):
     message = "Fetching current branches..."
@@ -559,6 +572,9 @@ class GitRepo:
         self.commits_ahead: str = "N/A"
         self.commits_behind: str = "N/A"
         self.gone_branches: Optional[List[str]] = None
+        self.custom_cmd_return_code: Optional[int] = None
+        self.custom_cmd_output: Optional[str] = None
+        self.custom_cmd_error: Optional[str] = None
 
     @property
     def status(self) -> "Status":
