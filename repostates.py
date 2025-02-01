@@ -47,7 +47,7 @@ def main() -> None:
         present_gone_branches(repos)
     elif flow_args["command"] == "shell":
         print(f"\n{Style.CYAN}CUSTOM SHELL COMMAND OUTPUT:{Style.RESET}\n")
-        for repo in repos:
+        for repo in sorted(repos, key=lambda repo: repo.name):
             print(f"{Style.GREEN}{repo.name}{Style.RESET}")
             print(f"{repo.custom_cmd_output}")
             print(f"{Style.RED}{repo.custom_cmd_error}{Style.RESET}")
@@ -198,15 +198,17 @@ def present_table_summary(repos: List["GitRepo"]) -> None:
             f"{row[1]:<{column_widths[1]}}"
             f"{row[2]}{Style.RESET}"
         )
+    print()
 
 
 def present_gone_branches(repos: List["GitRepo"]) -> None:
     print(f"\n{Style.BLUE}ALREADY GONE BRANCHES:{Style.RESET}\n")
-    for repo in repos:
+    for repo in sorted(repos, key=lambda repo: repo.name):
         print(f"{Style.GREEN}{repo.name}{Style.RESET}")
         if repo.gone_branches:
             for branch_candidate_to_delete in repo.gone_branches:
                 print(f"  {Style.RED}↳ {branch_candidate_to_delete}{Style.RESET}")
+    print()
 
 
 def indent_multiline_log(message: str) -> str:
