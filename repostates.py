@@ -7,7 +7,7 @@ import subprocess
 import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Tuple
 
 LOGGER = logging.getLogger(os.path.basename(__file__))
@@ -45,6 +45,12 @@ def main() -> None:
     # presentation layer - results, summary
     if flow_args["command"] == "gone-branches":
         present_gone_branches(repos)
+    elif flow_args["command"] == "shell":
+        print(f"\n{Style.CYAN}CUSTOM SHELL COMMAND OUTPUT:{Style.RESET}\n")
+        for repo in sorted(repos, key=lambda repo: repo.name):
+            print(f"{Style.GREEN}{repo.name}{Style.RESET}")
+            print(f"{repo.custom_cmd_output}")
+            print(f"{Style.RED}{repo.custom_cmd_error}{Style.RESET}")
     else:
         present_table_summary(repos)
 
@@ -59,12 +65,31 @@ def create_arg_parser() -> argparse.ArgumentParser:
         default=os.getcwd(),
     )
     parser.add_argument(
-        "-r", "--reg", help="regex for filtering repositories to show", default=None
+        "-r",
+        "--reg",
+        help="regex for filtering repositories to show",
+        default=None,
     )
-    parser.add_argument("--verbose", "-v", action="count", default=0)
+    parser.add_argument(
+        "--verbose", "-v", action="count", default=0, help="increase verbosity"
+    )
+    parser.add_argument(
+        "--no-fetch",
+        "-n",
+        default=False,
+        action="store_true",
+        help="do not fetch before status",
+    )
     subparsers = parser.add_subparsers(dest="command", help="choose a command to run")
     parser_status = subparsers.add_parser(  # noqa: F841
         "status", help="run git status (default)"
+    )
+    parser_status.add_argument(
+        "--no-fetch",
+        "-n",
+        default=False,
+        action="store_true",
+        help="do not fetch before status",
     )
     parser_pull = subparsers.add_parser("pull", help="run git pull")  # noqa: F841
     parser_checkout = subparsers.add_parser("checkout", help="run git checkout")
@@ -79,8 +104,12 @@ def create_arg_parser() -> argparse.ArgumentParser:
         default="list",
         help="choose action to perform on gone branches",
     )
-    parser_shell = subparsers.add_parser("shell", help="run arbitrary shell command")
-    parser_shell.add_argument("custom_command", help="custom shell command to run")
+    parser_shell = subparsers.add_parser(
+        "shell", help="run arbitrary shell command - enclose in quotes"
+    )
+    parser_shell.add_argument(
+        "custom_command", help="custom shell command to run - remember about quotes"
+    )
     parser.set_defaults(command="status")
 
     return parser
@@ -100,22 +129,23 @@ def get_cli_arguments(
 
 
 def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:
-    pipeline = [GitFetchPrune(), GitStatusBranch()]
-    if flow_args["command"] == "pull":
-        pipeline.extend([GitPull(), GitStatusBranch()])
+    pipeline = [GitFetchPrune(), GitStatusBranch(), GitDescribe()]
+    if flow_args["command"] == "status" and flow_args["no_fetch"]:
+        return [GitStatusBranch(), GitDescribe()]
+    elif flow_args["command"] == "pull":
+        pipeline.extend([GitPull(), GitStatusBranch(), GitDescribe()])
     elif flow_args["command"] == "checkout":
         pipeline.extend(
-            [GitCheckout(target_branch=flow_args["target_branch"]), GitStatusBranch()]
+            [
+                GitCheckout(target_branch=flow_args["target_branch"]),
+                GitStatusBranch(),
+                GitDescribe(),
+            ]
         )
     elif flow_args["command"] == "gone-branches":
         pipeline.append(GitGoneBranches())
     elif flow_args["command"] == "shell":
-        pipeline.extend(
-            [
-                CustomCommand(custom_command=flow_args["custom_command"]),
-                GitStatusBranch(),
-            ]
-        )
+        return [CustomCommand(custom_command=flow_args["custom_command"])]
     return pipeline
 
 
@@ -124,43 +154,61 @@ def move_coursor_up(count: int) -> None:
 
 
 def present_table_summary(repos: List["GitRepo"]) -> None:
-    header_name = "REPOSITORY"
-    header_branch = "BRANCH"
+    headers_1 = ["REPOSITORY", "BRANCH", "COMMITS"]
+    headers_2 = ["", "", "AHEAD/BEHIND"]
 
-    def get_column_width(header: str, content: List[str], margin: int = 3) -> int:
-        max_width_content = max(len(row) for row in content)
-        column_width = max(len(header), max_width_content) + margin
-        return column_width
-
-    repo_names = [repo.name for repo in repos]
-    branch_names = [repo.current_branch for repo in repos]
-    col_width_name = get_column_width(header_name, repo_names)
-    col_width_branch = get_column_width(header_branch, branch_names)
-
-    print(
-        f"\n{Style.BLUE}{header_name:<{col_width_name}}"
-        f"{header_branch:<{col_width_branch}}COMMITS{Style.RESET}"
-    )
-    print(
-        f"{Style.BLUE}{Style.UNDERLINE}{'':<{col_width_name}}{'':<{col_width_branch}}"
-        f"AHEAD/BEHIND{Style.RESET}"
-    )
+    rows = [headers_1, headers_2]
+    repo_statuses = []
+    column_widths = [max(len(i1), len(i2)) for i1, i2 in zip(headers_1, headers_2)]
     for repo in sorted(repos, key=lambda repo: repo.name):
+        repo_statuses.append(repo.status)
+        if repo.ref:
+            ref = "*" + repo.ref if repo.is_clean is False else repo.ref
+        else:
+            ref = "-- Not a git repo! --"
+        if repo.commits_ahead is None or repo.commits_behind is None:
+            commits_ahead_behind = "N/A" + " " * (4 - len("N/A")) + "N/A"
+        else:
+            commits_ahead_behind = (
+                str(repo.commits_ahead)
+                + " " * (4 - len(str(repo.commits_ahead)))  # noqa: W503
+                + str(repo.commits_behind)  # noqa: W503
+            )
+        row = [repo.name, ref, commits_ahead_behind]
+        column_widths = [
+            max(len(msg), current_max_len)
+            for msg, current_max_len in zip(row, column_widths)
+        ]
+        rows.append([repo.name, ref, commits_ahead_behind])
+
+    margin = 3
+    column_widths = [width + margin for width in column_widths]
+
+    print(
+        f"\n{Style.BLUE}{headers_1[0]:<{column_widths[0]}}"
+        f"{headers_1[1]:<{column_widths[1]}}{headers_1[2]}{Style.RESET}"
+    )
+    print(
+        f"{Style.BLUE}{Style.UNDERLINE}{headers_2[0]:<{column_widths[0]}}"
+        f"{headers_2[1]:<{column_widths[1]}}{headers_2[2]}{Style.RESET}"
+    )
+    for row, repo_status in zip(rows[2:], repo_statuses):
         print(
-            f"{STATUS_COLOR_MAPPING[repo.status]}{repo.name:<{col_width_name}}"
-            f"{repo.current_branch:<{col_width_branch}}"
-            f"{repo.commits_ahead:<4}"
-            f"{repo.commits_behind}{Style.RESET}"
+            f"{STATUS_COLOR_MAPPING[repo_status]}{row[0]:<{column_widths[0]}}"
+            f"{row[1]:<{column_widths[1]}}"
+            f"{row[2]}{Style.RESET}"
         )
+    print()
 
 
 def present_gone_branches(repos: List["GitRepo"]) -> None:
     print(f"\n{Style.BLUE}ALREADY GONE BRANCHES:{Style.RESET}\n")
-    for repo in repos:
+    for repo in sorted(repos, key=lambda repo: repo.name):
         print(f"{Style.GREEN}{repo.name}{Style.RESET}")
         if repo.gone_branches:
             for branch_candidate_to_delete in repo.gone_branches:
                 print(f"  {Style.RED}↳ {branch_candidate_to_delete}{Style.RESET}")
+    print()
 
 
 def indent_multiline_log(message: str) -> str:
@@ -252,9 +300,7 @@ class GitCommandsExecutor:
         elligible_repos = []
         for repo in repos:
             if not git_command.is_relevant(repo):
-                LOGGER.debug(
-                    f"Skipping {git_command.__class__.__name__} for {repo.name}"
-                )
+                LOGGER.info(f"Skipping {git_command.__class__.__name__} for {repo.name}")
                 continue
             elligible_repos.append(repo)
         git_procs = self._setup_processes(elligible_repos, git_command)
@@ -281,15 +327,18 @@ class GitCommandsExecutor:
             returncode = git_proc.returncode
             output = out.decode().strip()
             error = err.decode().strip()
-            if error:
-                LOGGER.warning(
-                    f"{git_command.__class__.__name__} for {repo.name}:\n\terror code: "
-                    f"{returncode}\n\t{indent_multiline_log(error)}"
-                )
-            if output:
+            msg = output or error
+            if returncode == 0 and msg:
                 LOGGER.debug(
-                    f"{git_command.__class__.__name__} output for {repo.name}:"
-                    f"\n\t{indent_multiline_log(output)}"
+                    f"{Style.GREEN}{git_command.__class__.__name__}{Style.RESET} "
+                    f"for {Style.GREEN}{repo.name}{Style.RESET}:"
+                    f"\n\t{indent_multiline_log(msg)}"
+                )
+            elif msg:
+                LOGGER.warning(
+                    f"{Style.GREEN}{git_command.__class__.__name__}{Style.RESET}"
+                    f" for {Style.GREEN}{repo.name}{Style.RESET}:\n\terror code: "
+                    f"{returncode}\n\t{indent_multiline_log(msg)}"
                 )
             git_command.handle_output(repo, returncode, output, error)
 
@@ -310,28 +359,25 @@ class GitFetchPrune(GitCommand):
         repo.has_upstream = returncode == 0
 
 
-class GitStatus(GitCommand):
-    message = "Getting git status..."
+class GitDescribe(GitCommand):
+    message = "Checking tags..."
 
     def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
-        command_args = ["git", "status", "--porcelain=v2"]
+        command_args = shlex.split("git describe --tags --exact-match")
         return self.popen_process(command_args, path=repo.fullpath)
 
     @staticmethod
     def is_relevant(repo: "GitRepo") -> bool:
-        return True
+        return repo.ref_type == GitRefType.DETACHED
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
-        result = re.findall("^(?!# branch).+", output, re.MULTILINE)
-        repo.is_clean = len(result) == 0
-        if not repo.is_clean:
-            repo.current_branch = "*" + repo.current_branch
+        if returncode == 0:
+            repo.ref_type = GitRefType.TAG
+            repo.ref = f"tags/{output}"
 
 
 class GitStatusBranch(GitCommand):
-    "GitFetchPrune required first to detect the case with missing remote branch."
-
     message = "Detailed git status..."
 
     def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
@@ -340,36 +386,42 @@ class GitStatusBranch(GitCommand):
 
     @staticmethod
     def is_relevant(repo: "GitRepo") -> bool:
-        return True
+        return True  # can be only local repo
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
         if returncode != 0:
-            repo.current_branch = "-- No branch --"
-            repo.commits_ahead = "N/A"
-            repo.commits_behind = "N/A"
+            repo.commits_ahead = None
+            repo.commits_behind = None
             return
 
-        result = re.findall(r"# branch.head\s(.*)", output, re.MULTILINE)
-        repo.on_branch = result[0] != "(detached)"
-        repo.current_branch = result[0] if repo.on_branch else "-- No branch --"
+        oid = re.findall(r"# branch.oid\s(.*)", output, re.MULTILINE)
+        repo.oid = oid[0]
 
-        result = re.findall(r"# branch.upstream\s(.*)", output, re.MULTILINE)
-        repo.has_upstream = len(result) > 0
-        repo.upstream_branch = result[0] if repo.has_upstream else None
+        head = re.findall(r"# branch.head\s(.*)", output, re.MULTILINE)
+        repo.ref_type = (
+            GitRefType.BRANCH if head[0] != "(detached)" else GitRefType.DETACHED
+        )
+        repo.ref = head[0] if repo.ref_type == GitRefType.BRANCH else repo.oid
 
-        result = re.findall(r"# branch.ab\s[+-](\d*)\s[+-](\d*)", output, re.MULTILINE)
-        if result:
-            repo.commits_ahead = result[0][0]
-            repo.commits_behind = result[0][1]
+        changes_present = re.findall(r"^(?!# branch).+", output, re.MULTILINE)
+        repo.is_clean = len(changes_present) == 0
+
+        if repo.has_upstream is False:
+            return
+
+        upstream = re.findall(r"# branch.upstream\s(.*)", output, re.MULTILINE)
+        repo.has_upstream = len(upstream) > 0
+
+        commits_ahead_behind = re.findall(
+            r"# branch.ab\s[+-](\d*)\s[+-](\d*)", output, re.MULTILINE
+        )
+        if commits_ahead_behind:
+            repo.commits_ahead = int(commits_ahead_behind[0][0])
+            repo.commits_behind = int(commits_ahead_behind[0][1])
         else:
-            repo.commits_ahead = "N/A"
-            repo.commits_behind = "N/A"
-
-        result = re.findall(r"^(?!# branch).+", output, re.MULTILINE)
-        repo.is_clean = len(result) == 0
-        if not repo.is_clean:
-            repo.current_branch = "*" + repo.current_branch
+            repo.commits_ahead = None
+            repo.commits_behind = None
 
 
 class GitCheckout(GitCommand):
@@ -388,28 +440,7 @@ class GitCheckout(GitCommand):
 
     @staticmethod
     def is_relevant(repo: "GitRepo") -> bool:
-        return repo.is_clean
-
-    @staticmethod
-    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
-        # maybe set some flag?
-        pass
-
-
-class CustomCommand(GitCommand):  # fix inheritance
-    # save output and error and error code? per repo per command?...
-    def __init__(self, custom_command: str) -> None:
-        self.custom_command = custom_command
-        self.message = f"Running custom command: {custom_command}"
-        LOGGER.info(f"Custom command: {custom_command}")
-
-    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
-        command_args = shlex.split(self.custom_command)
-        return self.popen_process(command_args, path=repo.fullpath)
-
-    @staticmethod
-    def is_relevant(repo: "GitRepo") -> bool:
-        return True
+        return repo.is_clean and repo.has_upstream is True
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
@@ -426,12 +457,15 @@ class GitPull(GitCommand):
 
     @staticmethod
     def is_relevant(repo: "GitRepo") -> bool:
-        return repo.is_clean
+        return (
+            repo.is_clean
+            and repo.ref_type == GitRefType.BRANCH  # noqa: W503
+            and repo.has_upstream is True  # noqa: W503
+        )
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
-        if returncode:
-            LOGGER.warning(f"GitCheckout for repo '{repo.name}' returned nonzero code")
+        # maybe set some flag?
         pass
 
 
@@ -444,7 +478,7 @@ class GitGoneBranches(GitCommand):
 
     @staticmethod
     def is_relevant(repo: "GitRepo") -> bool:
-        return True
+        return True  # ?
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
@@ -459,12 +493,14 @@ class GitGoneBranches(GitCommand):
         ]
 
 
-# currently unused GitCommands, kept for reference
-class GitCurrentBranch(GitCommand):
-    message = "Getting current branches..."
+class CustomCommand(GitCommand):  # fix inheritance
+    def __init__(self, custom_command: str) -> None:
+        self.custom_command = custom_command
+        self.message = f"Running custom command: {custom_command}"
+        LOGGER.info(f"Custom command: {custom_command}")
 
     def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
-        command_args = ["git", "branch", "--show-current"]
+        command_args = shlex.split(self.custom_command)
         return self.popen_process(command_args, path=repo.fullpath)
 
     @staticmethod
@@ -473,92 +509,49 @@ class GitCurrentBranch(GitCommand):
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
-        repo.on_branch = len(output) > 0 and returncode == 0
-        repo.current_branch = output if repo.on_branch else "-- No branch --"
+        repo.custom_cmd_return_code = returncode
+        repo.custom_cmd_output = output
+        repo.custom_cmd_error = error
 
 
-class GitFetchBranch(GitCommand):
-    message = "Fetching current branches..."
-
-    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
-        command_args = ["git", "fetch", "origin", repo.current_branch]
-        return self.popen_process(command_args, path=repo.fullpath)
-
-    @staticmethod
-    def is_relevant(repo: "GitRepo") -> bool:
-        return True
-
-    @staticmethod
-    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
-        repo.has_upstream = returncode == 0
-
-
-class GitUpstreamBranch(GitCommand):
-    message = "Getting upstream branches..."
-
-    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
-        command_args = [
-            "git",
-            "rev-parse",
-            "--abbrev-ref",
-            repo.current_branch + "@{upstream}",  # noqa: FS003 f-string missing prefix
-        ]
-        return self.popen_process(command_args, path=repo.fullpath)
-
-    @staticmethod
-    def is_relevant(repo: "GitRepo") -> bool:
-        return repo.on_branch
-
-    @staticmethod
-    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
-        if returncode == 0:
-            repo.upstream_branch = output
-
-
-class GitCommitsState(GitCommand):
-    message = "Getting commits state..."
-
-    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
-        command_args = [
-            "git",
-            "rev-list",
-            "--left-right",
-            "--count",
-            repo.current_branch + "..." + repo.upstream_branch,
-        ]
-        return self.popen_process(command_args, path=repo.fullpath)
-
-    @staticmethod
-    def is_relevant(repo: "GitRepo") -> bool:
-        return repo.has_upstream
-
-    @staticmethod
-    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
-        ahead, behind = output.split()
-        repo.commits_ahead = ahead
-        repo.commits_behind = behind
+class GitRefType(Enum):
+    UNKNOWN = auto()
+    DETACHED = auto()
+    BRANCH = auto()
+    TAG = auto()
+    COMMIT = auto()
 
 
 class GitRepo:
     def __init__(self, name: str, fullpath: str) -> None:
         self.fullpath = fullpath
         self.name = name
-        self.on_branch: bool = False
-        self.has_upstream: bool = False
+        self.oid: Optional[str] = None
+        self.ref: Optional[str] = None
+        self.ref_type: GitRefType = GitRefType.UNKNOWN
+        self.has_upstream: Optional[bool] = None
         self.is_clean: bool = False
-        self.current_branch: str = "N/A"
-        self.upstream_branch: str = "N/A"
-        self.commits_ahead: str = "N/A"
-        self.commits_behind: str = "N/A"
+        self.commits_ahead: Optional[int] = None
+        self.commits_behind: Optional[int] = None
         self.gone_branches: Optional[List[str]] = None
+        self.custom_cmd_return_code: Optional[int] = None
+        self.custom_cmd_output: Optional[str] = None
+        self.custom_cmd_error: Optional[str] = None
 
     @property
     def status(self) -> "Status":
-        if not self.has_upstream or not self.on_branch or self.commits_ahead == "N/A":
+        if self.ref_type == GitRefType.UNKNOWN:
+            return Status.CRITICAL
+        elif (
+            not self.has_upstream
+            or self.ref_type != GitRefType.BRANCH  # noqa: W503
+            or self.commits_ahead is None  # noqa: W503
+            or self.commits_behind is None  # noqa: W503
+        ):
             return Status.MODERATE
-        elif int(self.commits_behind) == 0 and int(self.commits_ahead) == 0:
+        elif self.commits_behind == 0 and self.commits_ahead == 0:
             return Status.OK
-        elif int(self.commits_behind) > 0:
+        elif self.commits_behind > 0:
             return Status.CRITICAL
         else:
             return Status.MODERATE
