@@ -1,5 +1,20 @@
 # Changelog
 
+# [2.1.0](https://github.com/harper25/repostates/compare/2.0.0...2.1.0) (2025-02-02)
+
+
+### Bug Fixes
+
+* add color to logs ([f69353e](https://github.com/harper25/repostates/commit/f69353ead316c3213237f463274e6bc6988c83de))
+* logging with correct levels ([0fb5a2e](https://github.com/harper25/repostates/commit/0fb5a2ed87abdc94bd677c69860d6251c41e22d4))
+* print output of custom shell commands ([868468d](https://github.com/harper25/repostates/commit/868468dc9d5521ae766094683bfc2e21371d3b07))
+* segregate properties and presentation layer ([8cf897d](https://github.com/harper25/repostates/commit/8cf897d3a981595ca83036666b73abd43d0e029f))
+
+
+### Features
+
+* detect tags and commits ([5aba703](https://github.com/harper25/repostates/commit/5aba703ea76254c1b64cf5ae43273e3e91162ff3))
+
 # [2.0.0](https://github.com/harper25/microservices-git-state/compare/1.1.0...2.0.0) (2025-01-04)
 
 
