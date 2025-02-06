@@ -129,24 +129,30 @@ def get_cli_arguments(
 
 
 def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:
-    pipeline = [GitFetchPrune(), GitStatusBranch(), GitDescribe()]
     if flow_args["command"] == "status" and flow_args["no_fetch"]:
         return [GitStatusBranch(), GitDescribe()]
+    elif flow_args["command"] == "status":
+        return [GitFetchPrune(), GitStatusBranch(), GitDescribe()]
     elif flow_args["command"] == "pull":
-        pipeline.extend([GitPull(), GitStatusBranch(), GitDescribe()])
+        return [
+            GitFetchPrune(),
+            GitStatusBranch(),
+            GitPull(),
+            GitStatusBranch(),
+            GitDescribe(),
+        ]
     elif flow_args["command"] == "checkout":
-        pipeline.extend(
-            [
-                GitCheckout(target_branch=flow_args["target_branch"]),
-                GitStatusBranch(),
-                GitDescribe(),
-            ]
-        )
+        return [
+            GitFetchPrune(),
+            GitCheckout(target_branch=flow_args["target_branch"]),
+            GitStatusBranch(),
+            GitDescribe(),
+        ]
     elif flow_args["command"] == "gone-branches":
-        pipeline.append(GitGoneBranches())
+        return [GitFetchPrune(), GitGoneBranches()]
     elif flow_args["command"] == "shell":
         return [CustomCommand(custom_command=flow_args["custom_command"])]
-    return pipeline
+    return [GitFetchPrune(), GitStatusBranch(), GitDescribe()]
 
 
 def move_coursor_up(count: int) -> None:
@@ -204,10 +210,13 @@ def present_table_summary(repos: List["GitRepo"]) -> None:
 def present_gone_branches(repos: List["GitRepo"]) -> None:
     print(f"\n{Style.BLUE}ALREADY GONE BRANCHES:{Style.RESET}\n")
     for repo in sorted(repos, key=lambda repo: repo.name):
-        print(f"{Style.GREEN}{repo.name}{Style.RESET}")
+        if repo.has_remote is False:
+            print(f"{Style.YELLOW}{repo.name} -> No remote!{Style.RESET}")
+        else:
+            print(f"{Style.GREEN}{repo.name}{Style.RESET}")
         if repo.gone_branches:
             for branch_candidate_to_delete in repo.gone_branches:
-                print(f"  {Style.RED}↳ {branch_candidate_to_delete}{Style.RESET}")
+                print(f" {Style.RED}↳ {branch_candidate_to_delete}{Style.RESET}")
     print()
 
 
@@ -356,6 +365,7 @@ class GitFetchPrune(GitCommand):
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
+        repo.has_remote = returncode == 0
         repo.has_upstream = returncode == 0
 
 
@@ -411,7 +421,7 @@ class GitStatusBranch(GitCommand):
             return
 
         upstream = re.findall(r"# branch.upstream\s(.*)", output, re.MULTILINE)
-        repo.has_upstream = len(upstream) > 0
+        repo.has_upstream = len(upstream) > 0 or None
 
         commits_ahead_behind = re.findall(
             r"# branch.ab\s[+-](\d*)\s[+-](\d*)", output, re.MULTILINE
@@ -440,7 +450,7 @@ class GitCheckout(GitCommand):
 
     @staticmethod
     def is_relevant(repo: "GitRepo") -> bool:
-        return repo.is_clean and repo.has_upstream is True
+        return True  # can be local repo, can be dirty and still checkout
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
@@ -458,8 +468,8 @@ class GitPull(GitCommand):
     @staticmethod
     def is_relevant(repo: "GitRepo") -> bool:
         return (
-            repo.is_clean
-            and repo.ref_type == GitRefType.BRANCH  # noqa: W503
+            repo.ref_type == GitRefType.BRANCH  # noqa: W503
+            and repo.has_remote is True  # noqa: W503
             and repo.has_upstream is True  # noqa: W503
         )
 
@@ -470,7 +480,7 @@ class GitPull(GitCommand):
 
 
 class GitGoneBranches(GitCommand):
-    message = "Running git branch -vv..."
+    message = "Checking gone branches..."
 
     def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
         command_args = ["git", "branch", "-vv"]
@@ -478,7 +488,7 @@ class GitGoneBranches(GitCommand):
 
     @staticmethod
     def is_relevant(repo: "GitRepo") -> bool:
-        return True  # ?
+        return True
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
@@ -529,6 +539,7 @@ class GitRepo:
         self.oid: Optional[str] = None
         self.ref: Optional[str] = None
         self.ref_type: GitRefType = GitRefType.UNKNOWN
+        self.has_remote: Optional[bool] = None
         self.has_upstream: Optional[bool] = None
         self.is_clean: bool = False
         self.commits_ahead: Optional[int] = None
@@ -542,8 +553,11 @@ class GitRepo:
     def status(self) -> "Status":
         if self.ref_type == GitRefType.UNKNOWN:
             return Status.CRITICAL
+        elif self.commits_behind is not None and self.commits_behind > 0:
+            return Status.CRITICAL
         elif (
             not self.has_upstream
+            or not self.has_remote  # noqa: W503 # fix checkout
             or self.ref_type != GitRefType.BRANCH  # noqa: W503
             or self.commits_ahead is None  # noqa: W503
             or self.commits_behind is None  # noqa: W503
@@ -551,8 +565,6 @@ class GitRepo:
             return Status.MODERATE
         elif self.commits_behind == 0 and self.commits_ahead == 0:
             return Status.OK
-        elif self.commits_behind > 0:
-            return Status.CRITICAL
         else:
             return Status.MODERATE
 
