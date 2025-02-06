@@ -210,10 +210,13 @@ def present_table_summary(repos: List["GitRepo"]) -> None:
 def present_gone_branches(repos: List["GitRepo"]) -> None:
     print(f"\n{Style.BLUE}ALREADY GONE BRANCHES:{Style.RESET}\n")
     for repo in sorted(repos, key=lambda repo: repo.name):
-        print(f"{Style.GREEN}{repo.name}{Style.RESET}")
+        if repo.has_remote is False:
+            print(f"{Style.YELLOW}{repo.name} -> No remote!{Style.RESET}")
+        else:
+            print(f"{Style.GREEN}{repo.name}{Style.RESET}")
         if repo.gone_branches:
             for branch_candidate_to_delete in repo.gone_branches:
-                print(f"  {Style.RED}↳ {branch_candidate_to_delete}{Style.RESET}")
+                print(f" {Style.RED}↳ {branch_candidate_to_delete}{Style.RESET}")
     print()
 
 
