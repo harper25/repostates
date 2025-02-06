@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.1](https://github.com/harper25/repostates/compare/2.1.0...2.1.1) (2025-02-06)
+
+
+### Bug Fixes
+
+* enable checkout from tag ([0e6f3b9](https://github.com/harper25/repostates/commit/0e6f3b9b272d74519ec270537d1e8ab5ba9dd1f1))
+* indicate repos with no remote when listing gone branches ([f0a5dd3](https://github.com/harper25/repostates/commit/f0a5dd30dfa60c5cbfaaf8c349a834768c33b7db))
+
 # [2.1.0](https://github.com/harper25/repostates/compare/2.0.0...2.1.0) (2025-02-02)
 
 
