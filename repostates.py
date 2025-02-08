@@ -13,48 +13,6 @@ from typing import Any, Dict, List, Optional, Tuple
 LOGGER = logging.getLogger(os.path.basename(__file__))
 
 
-@dataclass
-class CommonArgs:
-    working_dir: str
-    regex: str
-    logger_verbosity: int
-
-
-def main() -> None:
-    parser = create_arg_parser()
-    common_args, flow_args = get_cli_arguments(parser)
-    configure_logger(common_args.logger_verbosity)
-    repos = get_repos(
-        fullpath_start_dir=common_args.working_dir, regex=common_args.regex
-    )
-
-    if not repos:
-        print(f"{Style.YELLOW}No repos found!{Style.RESET}")
-        return
-
-    # pipeline generator
-    pipeline = generate_git_pipeline(flow_args)
-    git_command_executor = GitCommandsExecutor()
-
-    # pipeline execution
-    for git_command in pipeline:
-        print(f"{Style.MAGENTA}{git_command.message}{Style.RESET}")
-        git_command_executor.run_processes(repos, git_command)
-        print(f"{Style.MAGENTA}{Style.BRIGHT}{git_command.message}\t✓{Style.RESET}")
-
-    # presentation layer - results, summary
-    if flow_args["command"] == "gone-branches":
-        present_gone_branches(repos)
-    elif flow_args["command"] == "shell":
-        print(f"\n{Style.CYAN}CUSTOM SHELL COMMAND OUTPUT:{Style.RESET}\n")
-        for repo in sorted(repos, key=lambda repo: repo.name):
-            print(f"{Style.GREEN}{repo.name}{Style.RESET}")
-            print(f"{repo.custom_cmd_output}")
-            print(f"{Style.RED}{repo.custom_cmd_error}{Style.RESET}")
-    else:
-        present_table_summary(repos)
-
-
 def create_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -115,6 +73,13 @@ def create_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+@dataclass
+class CommonArgs:
+    working_dir: str
+    regex: str
+    logger_verbosity: int
+
+
 def get_cli_arguments(
     parser: argparse.ArgumentParser, input_args: Optional[List[str]] = None
 ) -> Tuple[CommonArgs, Dict[str, Any]]:
@@ -152,22 +117,75 @@ def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:
         return [GitFetchPrune(), GitGoneBranches()]
     elif flow_args["command"] == "shell":
         return [CustomCommand(custom_command=flow_args["custom_command"])]
+
+
+def main() -> None:
+    parser = create_arg_parser()
+    common_args, flow_args = get_cli_arguments(parser)
+    configure_logger(common_args.logger_verbosity)
+    repos = get_repos(
+        fullpath_start_dir=common_args.working_dir, regex=common_args.regex
+    )
+
+    if not repos:
+        print(f"{Style.YELLOW}No repos found!{Style.RESET}")
+        return
+
+    # pipeline generator
+    pipeline = generate_git_pipeline(flow_args)
+    git_command_executor = GitCommandsExecutor()
+
+    # pipeline execution
+    for git_command in pipeline:
+        print(f"{Style.MAGENTA}{git_command.message}{Style.RESET}")
+        git_command_executor.run_processes(repos, git_command)
+        print(f"{Style.MAGENTA}{Style.BRIGHT}{git_command.message}\t✓{Style.RESET}")
+
+    # presentation layer - results, summary
+    if flow_args["command"] == "gone-branches":
+        table = generate_table_for_gone_branches(repos)
+        print_table(table)
+    elif flow_args["command"] == "shell":
+        print(f"\n{Style.CYAN}CUSTOM SHELL COMMAND OUTPUT:{Style.RESET}\n")
+        for repo in sorted(repos, key=lambda repo: repo.name):
+            print(f"{Style.GREEN}{repo.name}{Style.RESET}")
+            print(f"{repo.custom_cmd_output}")
+            print(f"{Style.RED}{repo.custom_cmd_error}{Style.RESET}")
+    else:
+        table = generate_table_for_status(repos)
+        print_table(table)
+
     return [GitFetchPrune(), GitStatusBranch(), GitDescribe()]
 
 
-def move_coursor_up(count: int) -> None:
-    sys.stdout.write("\u001b[" + str(count) + "A")
+@dataclass
+class TableRow:
+    style: str
+    data: List[str]
 
 
-def present_table_summary(repos: List["GitRepo"]) -> None:
-    headers_1 = ["REPOSITORY", "BRANCH", "COMMITS"]
-    headers_2 = ["", "", "AHEAD/BEHIND"]
+def print_table(rows: List[TableRow], margin: int=3) -> None:
+    for column in range(len(rows[0].data)):
+        max_len = max(len(row.data[column]) for row in rows)
+        for row in rows:
+            row.data[column] = row.data[column].ljust(max_len + margin)
 
-    rows = [headers_1, headers_2]
-    repo_statuses = []
-    column_widths = [max(len(i1), len(i2)) for i1, i2 in zip(headers_1, headers_2)]
+    print()
+    for row in rows:
+        print(
+            "".join(
+                f"{row.style}{cell}{Style.RESET}"
+                for cell in row.data
+            )
+        )
+
+
+def generate_table_for_status(repos: List["GitRepo"]) -> List[TableRow]:
+    rows = [
+        TableRow(style=f"{Style.BLUE}", data=["REPOSITORY", "BRANCH", "COMMITS"]),
+        TableRow(style=f"{Style.BLUE}{Style.UNDERLINE}", data=["", "", "AHEAD/BEHIND"]),
+    ]
     for repo in sorted(repos, key=lambda repo: repo.name):
-        repo_statuses.append(repo.status)
         if repo.ref:
             ref = "*" + repo.ref if repo.is_clean is False else repo.ref
         else:
@@ -180,48 +198,34 @@ def present_table_summary(repos: List["GitRepo"]) -> None:
                 + " " * (4 - len(str(repo.commits_ahead)))  # noqa: W503
                 + str(repo.commits_behind)  # noqa: W503
             )
-        row = [repo.name, ref, commits_ahead_behind]
-        column_widths = [
-            max(len(msg), current_max_len)
-            for msg, current_max_len in zip(row, column_widths)
-        ]
-        rows.append([repo.name, ref, commits_ahead_behind])
-
-    margin = 3
-    column_widths = [width + margin for width in column_widths]
-
-    print(
-        f"\n{Style.BLUE}{headers_1[0]:<{column_widths[0]}}"
-        f"{headers_1[1]:<{column_widths[1]}}{headers_1[2]}{Style.RESET}"
-    )
-    print(
-        f"{Style.BLUE}{Style.UNDERLINE}{headers_2[0]:<{column_widths[0]}}"
-        f"{headers_2[1]:<{column_widths[1]}}{headers_2[2]}{Style.RESET}"
-    )
-    for row, repo_status in zip(rows[2:], repo_statuses):
-        print(
-            f"{STATUS_COLOR_MAPPING[repo_status]}{row[0]:<{column_widths[0]}}"
-            f"{row[1]:<{column_widths[1]}}"
-            f"{row[2]}{Style.RESET}"
+        rows.append(
+            TableRow(
+                style=STATUS_COLOR_MAPPING[repo.status],
+                data=[repo.name, ref, commits_ahead_behind]
+            )
         )
-    print()
+    return rows
 
 
-def present_gone_branches(repos: List["GitRepo"]) -> None:
-    print(f"\n{Style.BLUE}ALREADY GONE BRANCHES:{Style.RESET}\n")
+def generate_table_for_gone_branches(repos: List["GitRepo"]) -> List[TableRow]:
+    rows = [
+        TableRow(style=f"{Style.BLUE}{Style.UNDERLINE}", data=["REPOSITORY WITH GONE BRANCHES", "REMARKS"])
+    ]
     for repo in sorted(repos, key=lambda repo: repo.name):
         if repo.has_remote is False:
-            print(f"{Style.YELLOW}{repo.name} -> No remote!{Style.RESET}")
+            rows.append(
+                TableRow(style=Style.YELLOW, data=[repo.name, "No remote!"])
+            )
         else:
-            print(f"{Style.GREEN}{repo.name}{Style.RESET}")
+            rows.append(
+                TableRow(style=Style.GREEN, data=[repo.name, ""])
+            )
         if repo.gone_branches:
             for branch_candidate_to_delete in repo.gone_branches:
-                print(f" {Style.RED}↳ {branch_candidate_to_delete}{Style.RESET}")
-    print()
-
-
-def indent_multiline_log(message: str) -> str:
-    return message.replace("\n", "\n\t")
+                rows.append(
+                    TableRow(style=Style.RED, data=[f" ↳ {branch_candidate_to_delete}", ""])
+                )
+    return rows
 
 
 def get_repos(fullpath_start_dir: str, regex: str) -> List["GitRepo"]:
@@ -273,6 +277,10 @@ def configure_logger(verbosity: int) -> None:
     stream_handler.setFormatter(stream_formatter)
     LOGGER.setLevel(loglevel)
     LOGGER.addHandler(stream_handler)
+
+
+def indent_multiline_log(message: str) -> str:
+    return message.replace("\n", "\n\t")
 
 
 class GitCommand(ABC):
@@ -369,24 +377,6 @@ class GitFetchPrune(GitCommand):
         repo.has_upstream = returncode == 0
 
 
-class GitDescribe(GitCommand):
-    message = "Checking tags..."
-
-    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
-        command_args = shlex.split("git describe --tags --exact-match")
-        return self.popen_process(command_args, path=repo.fullpath)
-
-    @staticmethod
-    def is_relevant(repo: "GitRepo") -> bool:
-        return repo.ref_type == GitRefType.DETACHED
-
-    @staticmethod
-    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
-        if returncode == 0:
-            repo.ref_type = GitRefType.TAG
-            repo.ref = f"tags/{output}"
-
-
 class GitStatusBranch(GitCommand):
     message = "Detailed git status..."
 
@@ -434,6 +424,45 @@ class GitStatusBranch(GitCommand):
             repo.commits_behind = None
 
 
+class GitDescribe(GitCommand):
+    message = "Checking tags..."
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        command_args = shlex.split("git describe --tags --exact-match")
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo: "GitRepo") -> bool:
+        return repo.ref_type == GitRefType.DETACHED
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
+        if returncode == 0:
+            repo.ref_type = GitRefType.TAG
+            repo.ref = f"tags/{output}"
+
+
+class GitPull(GitCommand):
+    message = "Running git pull..."
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        command_args = ["git", "pull"]
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo: "GitRepo") -> bool:
+        return (
+            repo.ref_type == GitRefType.BRANCH  # noqa: W503
+            and repo.has_remote is True  # noqa: W503
+            and repo.has_upstream is True  # noqa: W503
+        )
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
+        # maybe set some flag?
+        pass
+
+
 class GitCheckout(GitCommand):
     message = "Running git checkout..."
 
@@ -451,27 +480,6 @@ class GitCheckout(GitCommand):
     @staticmethod
     def is_relevant(repo: "GitRepo") -> bool:
         return True  # can be local repo, can be dirty and still checkout
-
-    @staticmethod
-    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
-        # maybe set some flag?
-        pass
-
-
-class GitPull(GitCommand):
-    message = "Running git pull..."
-
-    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
-        command_args = ["git", "pull"]
-        return self.popen_process(command_args, path=repo.fullpath)
-
-    @staticmethod
-    def is_relevant(repo: "GitRepo") -> bool:
-        return (
-            repo.ref_type == GitRefType.BRANCH  # noqa: W503
-            and repo.has_remote is True  # noqa: W503
-            and repo.has_upstream is True  # noqa: W503
-        )
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
