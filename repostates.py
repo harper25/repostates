@@ -50,6 +50,9 @@ def create_arg_parser() -> argparse.ArgumentParser:
         help="do not fetch before status",
     )
     parser_pull = subparsers.add_parser("pull", help="run git pull")  # noqa: F841
+    parser_show_default_branch = subparsers.add_parser(  # noqa: F841
+        "show-default-branch", help="show default branch for repository"
+    )
     parser_checkout = subparsers.add_parser("checkout", help="run git checkout")
     parser_checkout.add_argument("target_branch", help="branch to checkout to")
     parser_branch = subparsers.add_parser(
@@ -106,6 +109,8 @@ def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:
             GitStatusBranch(),
             GitDescribe(),
         ]
+    elif flow_args["command"] == "show-default-branch":
+        return [GitFetchPrune(), GitDefaultBranch()]
     elif flow_args["command"] == "checkout":
         return [
             GitFetchPrune(),
@@ -117,6 +122,8 @@ def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:
         return [GitFetchPrune(), GitGoneBranches()]
     elif flow_args["command"] == "shell":
         return [CustomCommand(custom_command=flow_args["custom_command"])]
+
+    return [GitFetchPrune(), GitStatusBranch(), GitDescribe()]
 
 
 def main() -> None:
@@ -142,20 +149,17 @@ def main() -> None:
         print(f"{Style.MAGENTA}{Style.BRIGHT}{git_command.message}\t✓{Style.RESET}")
 
     # presentation layer - results, summary
-    if flow_args["command"] == "gone-branches":
+    if flow_args["command"] == "show-default-branch":
+        table = generate_table_for_default_branch(repos)
+        print_table(table)
+    elif flow_args["command"] == "gone-branches":
         table = generate_table_for_gone_branches(repos)
         print_table(table)
     elif flow_args["command"] == "shell":
-        print(f"\n{Style.CYAN}CUSTOM SHELL COMMAND OUTPUT:{Style.RESET}\n")
-        for repo in sorted(repos, key=lambda repo: repo.name):
-            print(f"{Style.GREEN}{repo.name}{Style.RESET}")
-            print(f"{repo.custom_cmd_output}")
-            print(f"{Style.RED}{repo.custom_cmd_error}{Style.RESET}")
+        print_shell_command_output(repos)
     else:
         table = generate_table_for_status(repos)
         print_table(table)
-
-    return [GitFetchPrune(), GitStatusBranch(), GitDescribe()]
 
 
 @dataclass
@@ -178,6 +182,7 @@ def print_table(rows: List[TableRow], margin: int=3) -> None:
                 for cell in row.data
             )
         )
+    print()
 
 
 def generate_table_for_status(repos: List["GitRepo"]) -> List[TableRow]:
@@ -207,6 +212,23 @@ def generate_table_for_status(repos: List["GitRepo"]) -> List[TableRow]:
     return rows
 
 
+def generate_table_for_default_branch(repos: List["GitRepo"]) -> List[TableRow]:
+    rows = [
+        TableRow(
+            style=f"{Style.BLUE}{Style.UNDERLINE}",
+            data=["REPOSITORY", "DEFAULT BRANCH"],
+        )
+    ]
+    for repo in sorted(repos, key=lambda repo: repo.name):
+        rows.append(
+            TableRow(
+                style=Style.GREEN if repo.default_branch else Style.RED,
+                data=[repo.name, repo.default_branch or "-- No default branch found! --"],
+            )
+        )
+    return rows
+
+
 def generate_table_for_gone_branches(repos: List["GitRepo"]) -> List[TableRow]:
     rows = [
         TableRow(style=f"{Style.BLUE}{Style.UNDERLINE}", data=["REPOSITORY WITH GONE BRANCHES", "REMARKS"])
@@ -226,6 +248,15 @@ def generate_table_for_gone_branches(repos: List["GitRepo"]) -> List[TableRow]:
                     TableRow(style=Style.RED, data=[f" ↳ {branch_candidate_to_delete}", ""])
                 )
     return rows
+
+
+def print_shell_command_output(repos: List["GitRepo"]) -> None:
+    print(f"\n{Style.CYAN}CUSTOM SHELL COMMAND OUTPUT:{Style.RESET}\n")
+    for repo in sorted(repos, key=lambda repo: repo.name):
+        print(f"{Style.GREEN}{repo.name}{Style.RESET}")
+        print(f"{repo.custom_cmd_output}")
+        print(f"{Style.RED}{repo.custom_cmd_error}{Style.RESET}")
+    print()
 
 
 def get_repos(fullpath_start_dir: str, regex: str) -> List["GitRepo"]:
@@ -463,6 +494,24 @@ class GitPull(GitCommand):
         pass
 
 
+class GitDefaultBranch(GitCommand):
+    message = "Getting default branch..."
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        command_args = shlex.split("git symbolic-ref refs/remotes/origin/HEAD --short")
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo: "GitRepo") -> bool:
+        return True
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
+        if returncode != 0:
+            return
+        repo.default_branch = "/".join(output.split("/")[1:]).strip()
+
+
 class GitCheckout(GitCommand):
     message = "Running git checkout..."
 
@@ -556,6 +605,8 @@ class GitRepo:
         self.custom_cmd_return_code: Optional[int] = None
         self.custom_cmd_output: Optional[str] = None
         self.custom_cmd_error: Optional[str] = None
+        self.default_branch: Optional[str] = None
+
 
     @property
     def status(self) -> "Status":
