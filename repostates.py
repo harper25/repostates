@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Tuple
 
+from packaging.version import InvalidVersion, Version
+
 LOGGER = logging.getLogger(os.path.basename(__file__))
 
 
@@ -52,6 +54,10 @@ def create_arg_parser() -> argparse.ArgumentParser:
     parser_pull = subparsers.add_parser("pull", help="run git pull")  # noqa: F841
     parser_show_default_branch = subparsers.add_parser(  # noqa: F841
         "show-default-branch", help="show default branch for repository"
+    )
+    parser_show_default_branch = subparsers.add_parser(  # noqa: F841
+        "show-latest-tag",
+        help="show latest production tag for repository (no pre-releases)",
     )
     parser_checkout = subparsers.add_parser("checkout", help="run git checkout")
     parser_checkout.add_argument("target_branch", help="branch to checkout to")
@@ -111,6 +117,8 @@ def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:
         ]
     elif flow_args["command"] == "show-default-branch":
         return [GitFetchPrune(), GitDefaultBranch()]
+    elif flow_args["command"] == "show-latest-tag":
+        return [GitFetchPrune(), GitLatestTag()]
     elif flow_args["command"] == "checkout":
         return [
             GitFetchPrune(),
@@ -152,6 +160,9 @@ def main() -> None:
     if flow_args["command"] == "show-default-branch":
         table = generate_table_for_default_branch(repos)
         print_table(table)
+    elif flow_args["command"] == "show-latest-tag":
+        table = generate_table_for_latest_tag(repos)
+        print_table(table)
     elif flow_args["command"] == "gone-branches":
         table = generate_table_for_gone_branches(repos)
         print_table(table)
@@ -168,7 +179,7 @@ class TableRow:
     data: List[str]
 
 
-def print_table(rows: List[TableRow], margin: int=3) -> None:
+def print_table(rows: List[TableRow], margin: int = 3) -> None:
     for column in range(len(rows[0].data)):
         max_len = max(len(row.data[column]) for row in rows)
         for row in rows:
@@ -176,12 +187,7 @@ def print_table(rows: List[TableRow], margin: int=3) -> None:
 
     print()
     for row in rows:
-        print(
-            "".join(
-                f"{row.style}{cell}{Style.RESET}"
-                for cell in row.data
-            )
-        )
+        print("".join(f"{row.style}{cell}{Style.RESET}" for cell in row.data))
     print()
 
 
@@ -206,7 +212,7 @@ def generate_table_for_status(repos: List["GitRepo"]) -> List[TableRow]:
         rows.append(
             TableRow(
                 style=STATUS_COLOR_MAPPING[repo.status],
-                data=[repo.name, ref, commits_ahead_behind]
+                data=[repo.name, ref, commits_ahead_behind],
             )
         )
     return rows
@@ -223,7 +229,38 @@ def generate_table_for_default_branch(repos: List["GitRepo"]) -> List[TableRow]:
         rows.append(
             TableRow(
                 style=Style.GREEN if repo.default_branch else Style.RED,
-                data=[repo.name, repo.default_branch or "-- No default branch found! --"],
+                data=[
+                    repo.name,
+                    repo.default_branch or "-- No default branch found! --",
+                ],
+            )
+        )
+    return rows
+
+
+def generate_table_for_latest_tag(repos: List["GitRepo"]) -> List[TableRow]:
+    rows = [
+        TableRow(
+            style=f"{Style.BLUE}{Style.UNDERLINE}",
+            data=["REPOSITORY", "LATEST TAG (NO PRE-RELEASE)", "REMARKS"],
+        )
+    ]
+    for repo in sorted(repos, key=lambda repo: repo.name):
+        if repo.latest_tag:
+            style = Style.GREEN
+        elif repo.has_remote is False:
+            style = Style.RED
+        else:
+            style = Style.YELLOW
+
+        rows.append(
+            TableRow(
+                style=style,
+                data=[
+                    repo.name,
+                    repo.latest_tag or "-- No production tag! --",
+                    "" if repo.has_remote is True else "No remote!",
+                ],
             )
         )
     return rows
@@ -231,21 +268,22 @@ def generate_table_for_default_branch(repos: List["GitRepo"]) -> List[TableRow]:
 
 def generate_table_for_gone_branches(repos: List["GitRepo"]) -> List[TableRow]:
     rows = [
-        TableRow(style=f"{Style.BLUE}{Style.UNDERLINE}", data=["REPOSITORY WITH GONE BRANCHES", "REMARKS"])
+        TableRow(
+            style=f"{Style.BLUE}{Style.UNDERLINE}",
+            data=["REPOSITORY WITH GONE BRANCHES", "REMARKS"],
+        )
     ]
     for repo in sorted(repos, key=lambda repo: repo.name):
         if repo.has_remote is False:
-            rows.append(
-                TableRow(style=Style.YELLOW, data=[repo.name, "No remote!"])
-            )
+            rows.append(TableRow(style=Style.YELLOW, data=[repo.name, "No remote!"]))
         else:
-            rows.append(
-                TableRow(style=Style.GREEN, data=[repo.name, ""])
-            )
+            rows.append(TableRow(style=Style.GREEN, data=[repo.name, ""]))
         if repo.gone_branches:
             for branch_candidate_to_delete in repo.gone_branches:
                 rows.append(
-                    TableRow(style=Style.RED, data=[f" ↳ {branch_candidate_to_delete}", ""])
+                    TableRow(
+                        style=Style.RED, data=[f" ↳ {branch_candidate_to_delete}", ""]
+                    )
                 )
     return rows
 
@@ -512,6 +550,34 @@ class GitDefaultBranch(GitCommand):
         repo.default_branch = "/".join(output.split("/")[1:]).strip()
 
 
+class GitLatestTag(GitCommand):
+    message = "Getting latest remote tag..."
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        # how about local tags and local repos (without remote)?
+        command_args = shlex.split("git ls-remote --tags --sort=-version:refname")
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo: "GitRepo") -> bool:
+        return True  # repo.has_remote?
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
+        if returncode != 0:
+            return
+
+        if output:
+            for line_with_tag in output.split("\n"):
+                try:
+                    tag = line_with_tag.split("refs/tags/")[1]
+                    if not Version(tag).is_prerelease:
+                        repo.latest_tag = tag
+                        break
+                except InvalidVersion:
+                    continue
+
+
 class GitCheckout(GitCommand):
     message = "Running git checkout..."
 
@@ -606,7 +672,7 @@ class GitRepo:
         self.custom_cmd_output: Optional[str] = None
         self.custom_cmd_error: Optional[str] = None
         self.default_branch: Optional[str] = None
-
+        self.latest_tag: Optional[str] = None
 
     @property
     def status(self) -> "Status":
