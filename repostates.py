@@ -10,49 +10,9 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Tuple
 
+from packaging.version import InvalidVersion, Version
+
 LOGGER = logging.getLogger(os.path.basename(__file__))
-
-
-@dataclass
-class CommonArgs:
-    working_dir: str
-    regex: str
-    logger_verbosity: int
-
-
-def main() -> None:
-    parser = create_arg_parser()
-    common_args, flow_args = get_cli_arguments(parser)
-    configure_logger(common_args.logger_verbosity)
-    repos = get_repos(
-        fullpath_start_dir=common_args.working_dir, regex=common_args.regex
-    )
-
-    if not repos:
-        print(f"{Style.YELLOW}No repos found!{Style.RESET}")
-        return
-
-    # pipeline generator
-    pipeline = generate_git_pipeline(flow_args)
-    git_command_executor = GitCommandsExecutor()
-
-    # pipeline execution
-    for git_command in pipeline:
-        print(f"{Style.MAGENTA}{git_command.message}{Style.RESET}")
-        git_command_executor.run_processes(repos, git_command)
-        print(f"{Style.MAGENTA}{Style.BRIGHT}{git_command.message}\t✓{Style.RESET}")
-
-    # presentation layer - results, summary
-    if flow_args["command"] == "gone-branches":
-        present_gone_branches(repos)
-    elif flow_args["command"] == "shell":
-        print(f"\n{Style.CYAN}CUSTOM SHELL COMMAND OUTPUT:{Style.RESET}\n")
-        for repo in sorted(repos, key=lambda repo: repo.name):
-            print(f"{Style.GREEN}{repo.name}{Style.RESET}")
-            print(f"{repo.custom_cmd_output}")
-            print(f"{Style.RED}{repo.custom_cmd_error}{Style.RESET}")
-    else:
-        present_table_summary(repos)
 
 
 def create_arg_parser() -> argparse.ArgumentParser:
@@ -92,6 +52,13 @@ def create_arg_parser() -> argparse.ArgumentParser:
         help="do not fetch before status",
     )
     parser_pull = subparsers.add_parser("pull", help="run git pull")  # noqa: F841
+    parser_show_default_branch = subparsers.add_parser(  # noqa: F841
+        "show-default-branch", help="show default branch for repository"
+    )
+    parser_show_default_branch = subparsers.add_parser(  # noqa: F841
+        "show-latest-tag",
+        help="show latest production tag for repository (no pre-releases)",
+    )
     parser_checkout = subparsers.add_parser("checkout", help="run git checkout")
     parser_checkout.add_argument("target_branch", help="branch to checkout to")
     parser_branch = subparsers.add_parser(
@@ -113,6 +80,13 @@ def create_arg_parser() -> argparse.ArgumentParser:
     parser.set_defaults(command="status")
 
     return parser
+
+
+@dataclass
+class CommonArgs:
+    working_dir: str
+    regex: str
+    logger_verbosity: int
 
 
 def get_cli_arguments(
@@ -141,6 +115,10 @@ def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:
             GitStatusBranch(),
             GitDescribe(),
         ]
+    elif flow_args["command"] == "show-default-branch":
+        return [GitFetchPrune(), GitDefaultBranch()]
+    elif flow_args["command"] == "show-latest-tag":
+        return [GitFetchPrune(), GitLatestTag()]
     elif flow_args["command"] == "checkout":
         return [
             GitFetchPrune(),
@@ -152,22 +130,73 @@ def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:
         return [GitFetchPrune(), GitGoneBranches()]
     elif flow_args["command"] == "shell":
         return [CustomCommand(custom_command=flow_args["custom_command"])]
+
     return [GitFetchPrune(), GitStatusBranch(), GitDescribe()]
 
 
-def move_coursor_up(count: int) -> None:
-    sys.stdout.write("\u001b[" + str(count) + "A")
+def main() -> None:
+    parser = create_arg_parser()
+    common_args, flow_args = get_cli_arguments(parser)
+    configure_logger(common_args.logger_verbosity)
+    repos = get_repos(
+        fullpath_start_dir=common_args.working_dir, regex=common_args.regex
+    )
+
+    if not repos:
+        print(f"{Style.YELLOW}No repos found!{Style.RESET}")
+        return
+
+    # pipeline generator
+    pipeline = generate_git_pipeline(flow_args)
+    git_command_executor = GitCommandsExecutor()
+
+    # pipeline execution
+    for git_command in pipeline:
+        print(f"{Style.MAGENTA}{git_command.message}{Style.RESET}")
+        git_command_executor.run_processes(repos, git_command)
+        print(f"{Style.MAGENTA}{Style.BRIGHT}{git_command.message}\t✓{Style.RESET}")
+
+    # presentation layer - results, summary
+    if flow_args["command"] == "show-default-branch":
+        table = generate_table_for_default_branch(repos)
+        print_table(table)
+    elif flow_args["command"] == "show-latest-tag":
+        table = generate_table_for_latest_tag(repos)
+        print_table(table)
+    elif flow_args["command"] == "gone-branches":
+        table = generate_table_for_gone_branches(repos)
+        print_table(table)
+    elif flow_args["command"] == "shell":
+        print_shell_command_output(repos)
+    else:
+        table = generate_table_for_status(repos)
+        print_table(table)
 
 
-def present_table_summary(repos: List["GitRepo"]) -> None:
-    headers_1 = ["REPOSITORY", "BRANCH", "COMMITS"]
-    headers_2 = ["", "", "AHEAD/BEHIND"]
+@dataclass
+class TableRow:
+    style: str
+    data: List[str]
 
-    rows = [headers_1, headers_2]
-    repo_statuses = []
-    column_widths = [max(len(i1), len(i2)) for i1, i2 in zip(headers_1, headers_2)]
+
+def print_table(rows: List[TableRow], margin: int = 3) -> None:
+    for column in range(len(rows[0].data)):
+        max_len = max(len(row.data[column]) for row in rows)
+        for row in rows:
+            row.data[column] = row.data[column].ljust(max_len + margin)
+
+    print()
+    for row in rows:
+        print("".join(f"{row.style}{cell}{Style.RESET}" for cell in row.data))
+    print()
+
+
+def generate_table_for_status(repos: List["GitRepo"]) -> List[TableRow]:
+    rows = [
+        TableRow(style=f"{Style.BLUE}", data=["REPOSITORY", "BRANCH", "COMMITS"]),
+        TableRow(style=f"{Style.BLUE}{Style.UNDERLINE}", data=["", "", "AHEAD/BEHIND"]),
+    ]
     for repo in sorted(repos, key=lambda repo: repo.name):
-        repo_statuses.append(repo.status)
         if repo.ref:
             ref = "*" + repo.ref if repo.is_clean is False else repo.ref
         else:
@@ -180,48 +209,92 @@ def present_table_summary(repos: List["GitRepo"]) -> None:
                 + " " * (4 - len(str(repo.commits_ahead)))  # noqa: W503
                 + str(repo.commits_behind)  # noqa: W503
             )
-        row = [repo.name, ref, commits_ahead_behind]
-        column_widths = [
-            max(len(msg), current_max_len)
-            for msg, current_max_len in zip(row, column_widths)
-        ]
-        rows.append([repo.name, ref, commits_ahead_behind])
-
-    margin = 3
-    column_widths = [width + margin for width in column_widths]
-
-    print(
-        f"\n{Style.BLUE}{headers_1[0]:<{column_widths[0]}}"
-        f"{headers_1[1]:<{column_widths[1]}}{headers_1[2]}{Style.RESET}"
-    )
-    print(
-        f"{Style.BLUE}{Style.UNDERLINE}{headers_2[0]:<{column_widths[0]}}"
-        f"{headers_2[1]:<{column_widths[1]}}{headers_2[2]}{Style.RESET}"
-    )
-    for row, repo_status in zip(rows[2:], repo_statuses):
-        print(
-            f"{STATUS_COLOR_MAPPING[repo_status]}{row[0]:<{column_widths[0]}}"
-            f"{row[1]:<{column_widths[1]}}"
-            f"{row[2]}{Style.RESET}"
+        rows.append(
+            TableRow(
+                style=STATUS_COLOR_MAPPING[repo.status],
+                data=[repo.name, ref, commits_ahead_behind],
+            )
         )
-    print()
+    return rows
 
 
-def present_gone_branches(repos: List["GitRepo"]) -> None:
-    print(f"\n{Style.BLUE}ALREADY GONE BRANCHES:{Style.RESET}\n")
+def generate_table_for_default_branch(repos: List["GitRepo"]) -> List[TableRow]:
+    rows = [
+        TableRow(
+            style=f"{Style.BLUE}{Style.UNDERLINE}",
+            data=["REPOSITORY", "DEFAULT BRANCH"],
+        )
+    ]
+    for repo in sorted(repos, key=lambda repo: repo.name):
+        rows.append(
+            TableRow(
+                style=Style.GREEN if repo.default_branch else Style.RED,
+                data=[
+                    repo.name,
+                    repo.default_branch or "-- No default branch found! --",
+                ],
+            )
+        )
+    return rows
+
+
+def generate_table_for_latest_tag(repos: List["GitRepo"]) -> List[TableRow]:
+    rows = [
+        TableRow(
+            style=f"{Style.BLUE}{Style.UNDERLINE}",
+            data=["REPOSITORY", "LATEST TAG (NO PRE-RELEASE)", "REMARKS"],
+        )
+    ]
+    for repo in sorted(repos, key=lambda repo: repo.name):
+        if repo.latest_tag:
+            style = Style.GREEN
+        elif repo.has_remote is False:
+            style = Style.RED
+        else:
+            style = Style.YELLOW
+
+        rows.append(
+            TableRow(
+                style=style,
+                data=[
+                    repo.name,
+                    repo.latest_tag or "-- No production tag! --",
+                    "" if repo.has_remote is True else "No remote!",
+                ],
+            )
+        )
+    return rows
+
+
+def generate_table_for_gone_branches(repos: List["GitRepo"]) -> List[TableRow]:
+    rows = [
+        TableRow(
+            style=f"{Style.BLUE}{Style.UNDERLINE}",
+            data=["REPOSITORY WITH GONE BRANCHES", "REMARKS"],
+        )
+    ]
     for repo in sorted(repos, key=lambda repo: repo.name):
         if repo.has_remote is False:
-            print(f"{Style.YELLOW}{repo.name} -> No remote!{Style.RESET}")
+            rows.append(TableRow(style=Style.YELLOW, data=[repo.name, "No remote!"]))
         else:
-            print(f"{Style.GREEN}{repo.name}{Style.RESET}")
+            rows.append(TableRow(style=Style.GREEN, data=[repo.name, ""]))
         if repo.gone_branches:
             for branch_candidate_to_delete in repo.gone_branches:
-                print(f" {Style.RED}↳ {branch_candidate_to_delete}{Style.RESET}")
+                rows.append(
+                    TableRow(
+                        style=Style.RED, data=[f" ↳ {branch_candidate_to_delete}", ""]
+                    )
+                )
+    return rows
+
+
+def print_shell_command_output(repos: List["GitRepo"]) -> None:
+    print(f"\n{Style.CYAN}CUSTOM SHELL COMMAND OUTPUT:{Style.RESET}\n")
+    for repo in sorted(repos, key=lambda repo: repo.name):
+        print(f"{Style.GREEN}{repo.name}{Style.RESET}")
+        print(f"{repo.custom_cmd_output}")
+        print(f"{Style.RED}{repo.custom_cmd_error}{Style.RESET}")
     print()
-
-
-def indent_multiline_log(message: str) -> str:
-    return message.replace("\n", "\n\t")
 
 
 def get_repos(fullpath_start_dir: str, regex: str) -> List["GitRepo"]:
@@ -273,6 +346,10 @@ def configure_logger(verbosity: int) -> None:
     stream_handler.setFormatter(stream_formatter)
     LOGGER.setLevel(loglevel)
     LOGGER.addHandler(stream_handler)
+
+
+def indent_multiline_log(message: str) -> str:
+    return message.replace("\n", "\n\t")
 
 
 class GitCommand(ABC):
@@ -369,24 +446,6 @@ class GitFetchPrune(GitCommand):
         repo.has_upstream = returncode == 0
 
 
-class GitDescribe(GitCommand):
-    message = "Checking tags..."
-
-    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
-        command_args = shlex.split("git describe --tags --exact-match")
-        return self.popen_process(command_args, path=repo.fullpath)
-
-    @staticmethod
-    def is_relevant(repo: "GitRepo") -> bool:
-        return repo.ref_type == GitRefType.DETACHED
-
-    @staticmethod
-    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
-        if returncode == 0:
-            repo.ref_type = GitRefType.TAG
-            repo.ref = f"tags/{output}"
-
-
 class GitStatusBranch(GitCommand):
     message = "Detailed git status..."
 
@@ -434,6 +493,91 @@ class GitStatusBranch(GitCommand):
             repo.commits_behind = None
 
 
+class GitDescribe(GitCommand):
+    message = "Checking tags..."
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        command_args = shlex.split("git describe --tags --exact-match")
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo: "GitRepo") -> bool:
+        return repo.ref_type == GitRefType.DETACHED
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
+        if returncode == 0:
+            repo.ref_type = GitRefType.TAG
+            repo.ref = f"tags/{output}"
+
+
+class GitPull(GitCommand):
+    message = "Running git pull..."
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        command_args = ["git", "pull"]
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo: "GitRepo") -> bool:
+        return (
+            repo.ref_type == GitRefType.BRANCH  # noqa: W503
+            and repo.has_remote is True  # noqa: W503
+            and repo.has_upstream is True  # noqa: W503
+        )
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
+        # maybe set some flag?
+        pass
+
+
+class GitDefaultBranch(GitCommand):
+    message = "Getting default branch..."
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        command_args = shlex.split("git symbolic-ref refs/remotes/origin/HEAD --short")
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo: "GitRepo") -> bool:
+        return True
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
+        if returncode != 0:
+            return
+        repo.default_branch = "/".join(output.split("/")[1:]).strip()
+
+
+class GitLatestTag(GitCommand):
+    message = "Getting latest remote tag..."
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        # how about local tags and local repos (without remote)?
+        command_args = shlex.split("git ls-remote --tags --sort=-version:refname")
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo: "GitRepo") -> bool:
+        return True  # repo.has_remote?
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
+        if returncode != 0:
+            return
+
+        if output:
+            for line_with_tag in output.split("\n"):
+                try:
+                    tag = line_with_tag.split("refs/tags/")[1]
+                    if not Version(tag).is_prerelease:
+                        repo.latest_tag = tag
+                        break
+                except InvalidVersion:
+                    continue
+
+
 class GitCheckout(GitCommand):
     message = "Running git checkout..."
 
@@ -451,27 +595,6 @@ class GitCheckout(GitCommand):
     @staticmethod
     def is_relevant(repo: "GitRepo") -> bool:
         return True  # can be local repo, can be dirty and still checkout
-
-    @staticmethod
-    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
-        # maybe set some flag?
-        pass
-
-
-class GitPull(GitCommand):
-    message = "Running git pull..."
-
-    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
-        command_args = ["git", "pull"]
-        return self.popen_process(command_args, path=repo.fullpath)
-
-    @staticmethod
-    def is_relevant(repo: "GitRepo") -> bool:
-        return (
-            repo.ref_type == GitRefType.BRANCH  # noqa: W503
-            and repo.has_remote is True  # noqa: W503
-            and repo.has_upstream is True  # noqa: W503
-        )
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
@@ -548,6 +671,8 @@ class GitRepo:
         self.custom_cmd_return_code: Optional[int] = None
         self.custom_cmd_output: Optional[str] = None
         self.custom_cmd_error: Optional[str] = None
+        self.default_branch: Optional[str] = None
+        self.latest_tag: Optional[str] = None
 
     @property
     def status(self) -> "Status":
