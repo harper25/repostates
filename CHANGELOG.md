@@ -1,5 +1,18 @@
 # Changelog
 
+# [2.2.0](https://github.com/harper25/repostates/compare/2.1.1...2.2.0) (2025-02-09)
+
+
+### Bug Fixes
+
+* refactor presentation layer with tables + reorganise ([ec9095b](https://github.com/harper25/repostates/commit/ec9095bfbc266b6fa5dd2661cd534d6fcddc3760))
+
+
+### Features
+
+* add showing default branch for repo ([f6aad4e](https://github.com/harper25/repostates/commit/f6aad4ee152f85c7b1a75af87c06013e544956f5))
+* add showing latest remote tag ([b8f3386](https://github.com/harper25/repostates/commit/b8f338612f642b8e4eda66d4cc23ebab97b01d57))
+
 ## [2.1.1](https://github.com/harper25/repostates/compare/2.1.0...2.1.1) (2025-02-06)
 
 
