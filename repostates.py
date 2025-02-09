@@ -61,6 +61,12 @@ def create_arg_parser() -> argparse.ArgumentParser:
     )
     parser_checkout = subparsers.add_parser("checkout", help="run git checkout")
     parser_checkout.add_argument("target_branch", help="branch to checkout to")
+    parser_checkout_default_branch = subparsers.add_parser(  # noqa: F841
+        "checkout-default", help="checkout to default branch"
+    )
+    parser_checkout_latest_tag = subparsers.add_parser(  # noqa: F841
+        "checkout-latest-tag", help="checkout to latest tag"
+    )
     parser_branch = subparsers.add_parser(
         "gone-branches", help="find already gone branches, default action is list"
     )
@@ -102,7 +108,7 @@ def get_cli_arguments(
     return common_args, vars(args)
 
 
-def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:
+def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:  # noqa: C901
     if flow_args["command"] == "status" and flow_args["no_fetch"]:
         return [GitStatusBranch(), GitDescribe()]
     elif flow_args["command"] == "status":
@@ -124,6 +130,22 @@ def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:
             GitFetchPrune(),
             GitCheckout(target_branch=flow_args["target_branch"]),
             GitStatusBranch(),
+            GitDescribe(),
+        ]
+    elif flow_args["command"] == "checkout-default":
+        return [
+            GitFetchPrune(),
+            GitDefaultBranch(),
+            GitCheckoutSpecial(target=GitCheckoutTarget.DEFAULT_BRANCH),
+            GitStatusBranch(),
+            GitDescribe(),
+        ]
+    elif flow_args["command"] == "checkout-latest-tag":
+        return [
+            GitFetchPrune(),
+            GitLatestTag(),
+            GitCheckoutSpecial(target=GitCheckoutTarget.LATEST_TAG),
+            GitStatusBranch(),  # ?
             GitDescribe(),
         ]
     elif flow_args["command"] == "gone-branches":
@@ -599,6 +621,31 @@ class GitCheckout(GitCommand):
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
         # maybe set some flag?
+        pass
+
+
+class GitCheckoutTarget(Enum):
+    DEFAULT_BRANCH = "default_branch"
+    LATEST_TAG = "latest_tag"
+
+
+class GitCheckoutSpecial(GitCommand):
+    message = "Running git checkout special..."
+
+    def __init__(self, target: GitCheckoutTarget) -> None:
+        self.target = target
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        target = getattr(repo, self.target.value)
+        command_args = ["git", "checkout", target]
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    def is_relevant(self, repo: "GitRepo") -> bool:
+        target = getattr(repo, self.target.value, None)
+        return target is not None
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
         pass
 
 
