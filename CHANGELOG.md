@@ -1,5 +1,13 @@
 # Changelog
 
+# [2.3.0](https://github.com/harper25/repostates/compare/2.2.0...2.3.0) (2025-03-02)
+
+
+### Features
+
+* add checkout to latest tag and to default branch ([36cca5f](https://github.com/harper25/repostates/commit/36cca5f72aa01701018ff63259a041d1ea892704))
+* add tags info to status ([3268935](https://github.com/harper25/repostates/commit/326893560235e74ed48d9c0f28860e57f8f3089d))
+
 # [2.2.0](https://github.com/harper25/repostates/compare/2.1.1...2.2.0) (2025-02-09)
 
 
