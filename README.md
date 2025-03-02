@@ -1,15 +1,20 @@
 # REPOSTATES
 
-The purpose of the tool is to **manage multiple repositories**, in particular run the same git or shell command on a **set of repositories** in a time efficient, concurrent way.
+The purpose of the tool is to **manage multiple repositories**, in particular run **the same git or shell command** on a set of repositories in a time efficient, **concurrent way**.
 
 ## What it offers?
 
 - meaningful insight into the state of a **set of git repositories**
-- concurrent execution of commands on multiple repositories
-- support for git commands
-- support for arbitrary shell commands and scripts
-- nice presentation layer, especially for `git status`
-- custom commands, like listing already merged/gone branches and many more planned!
+- **concurrent execution** of commands on multiple repositories
+- support for **git commands**
+- support for **arbitrary shell commands** and **scripts**
+- nice **presentation layer**, especially for `git status`
+- a couple of additional commands, like:
+  - list latest tags (with checkout)
+  - list default branches (with checkout)
+  - list already gone branches
+  - checkout to default branch
+  - checkout to latest tag
 
 ## Example
 
@@ -17,7 +22,7 @@ The purpose of the tool is to **manage multiple repositories**, in particular ru
 
 ### Show status of multiple git repositories (default)
 
-![repostates](/screen_status.png)
+![repostates](./images/screen_status.png)
 
 The tool by default *fetches* origin for each repository and then displays the following info:
 
@@ -25,15 +30,52 @@ The tool by default *fetches* origin for each repository and then displays the f
 - commits ahead origin
 - commits behind origin
 - if there are uncommited changes (*)
+- if there are more recent tags
 - if there is anything to do with each repo (colors)
 
 ### Run custom shell command
 
-![repostates_custom](/screen_custom.png)
+![repostates_custom](./images/screen_custom.png)
+
+#### Running more complex commands
+
+```py
+# Log latest tag using pipe
+repostates shell "sh -c 'git ls-remote --tags --sort=-version:refname | head -n 1 '"
+# or use: repostates show-latest-tag ;)
+
+# Checkout to previous branch/tag/commit using shell logical operators (AND, OR)
+repostates shell "sh -c 'git switch - || git switch - --detach'"
+# or use: repostates shell "git checkout - " ;)
+```
+
+### Show latest tags
+
+![repostates_latest_tags](./images/screen_latest_tags.png)
+
+### Show default branches
+
+![repostates_default_branches](./images/screen_default_branches.png)
 
 ### Show already gone branches
 
-![repostates_gone_branches](/screen_gone_branches.png)
+![repostates_gone_branches](./images/screen_gone_branches.png)
+
+### Checkouts and pull
+
+```py
+repostates checkout existing-branch
+repostates pull
+```
+
+### Special checkouts
+
+These commands run git checkout to the latest tag and to the default project branch respectively (if there are no changes in repos):
+
+```py
+repostates checkout-latest-tag
+repostates checkout-default-branch
+```
 
 ## Background story
 
@@ -43,11 +85,12 @@ This project was created to overcome this inconvenience by automating repetitive
 
 Other use cases:
 
-- updating references in multiple repositories, e.g.:
-  - version of CICD pipeline used
-  - dependencies and packages versions
+- commiting the same changes, e.g.:
+  - updating references to external resources, like CICD pipeline version
+  - updating dependencies and packages versions
+  - updating project info
 - managing git/project configuration and installation
-- providing statistics for multiple repositories
+- gathering statistics for multiple repositories
 
 ## Getting Started & Installing
 
@@ -84,14 +127,20 @@ Then, the best option to run the tool is to clone the repository and:
 ```bash
 $ repostates --help
 
-usage: repostates.py [-h] [-d [DIR]] [-r REG] [--verbose] [--no-fetch] {status,pull,checkout,gone-branches,shell} ...
+usage: repostates.py [-h] [-d [DIR]] [-r REG] [--verbose] [--no-fetch] {status,pull,show-default-branch,show-latest-tag,checkout,checkout-default,checkout-latest-tag,gone-branches,shell} ...
 
 positional arguments:
-  {status,pull,checkout,gone-branches,shell}
+  {status,pull,show-default-branch,show-latest-tag,checkout,checkout-default,checkout-latest-tag,gone-branches,shell}
                         choose a command to run
     status              run git status (default)
     pull                run git pull
+    show-default-branch
+                        show default branch for repository
+    show-latest-tag     show latest production tag for repository (no pre-releases)
     checkout            run git checkout
+    checkout-default    checkout to default branch
+    checkout-latest-tag
+                        checkout to latest tag
     gone-branches       find already gone branches, default action is list
     shell               run arbitrary shell command - enclose in quotes
 
