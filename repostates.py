@@ -112,7 +112,7 @@ def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:  # n
     if flow_args["command"] == "status" and flow_args["no_fetch"]:
         return [GitStatusBranch(), GitDescribe()]
     elif flow_args["command"] == "status":
-        return [GitFetchPrune(), GitStatusBranch(), GitDescribe()]
+        return [GitFetchPrune(), GitStatusBranch(), GitDescribe(), GitLatestTag()]
     elif flow_args["command"] == "pull":
         return [
             GitFetchPrune(),
@@ -153,7 +153,7 @@ def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:  # n
     elif flow_args["command"] == "shell":
         return [CustomCommand(custom_command=flow_args["custom_command"])]
 
-    return [GitFetchPrune(), GitStatusBranch(), GitDescribe()]
+    return [GitFetchPrune(), GitStatusBranch(), GitDescribe(), GitLatestTag()]
 
 
 def main() -> None:
@@ -215,14 +215,26 @@ def print_table(rows: List[TableRow], margin: int = 3) -> None:
 
 def generate_table_for_status(repos: List["GitRepo"]) -> List[TableRow]:
     rows = [
-        TableRow(style=f"{Style.BLUE}", data=["REPOSITORY", "BRANCH", "COMMITS"]),
-        TableRow(style=f"{Style.BLUE}{Style.UNDERLINE}", data=["", "", "AHEAD/BEHIND"]),
+        TableRow(
+            style=f"{Style.BLUE}", data=["REPOSITORY", "BRANCH", "COMMITS", "REMARKS"]
+        ),
+        TableRow(
+            style=f"{Style.BLUE}{Style.UNDERLINE}", data=["", "", "AHEAD/BEHIND", ""]
+        ),
     ]
     for repo in sorted(repos, key=lambda repo: repo.name):
+        remark = ""
         if repo.ref:
-            ref = "*" + repo.ref if repo.is_clean is False else repo.ref
+            ref = repo.ref
+            if repo.ref_type == GitRefType.TAG:
+                ref = "tags/" + ref
+            if repo.is_clean is False:
+                ref = "*" + ref
+            if repo.has_remote is False:
+                remark = "No remote!"
         else:
-            ref = "-- Not a git repo! --"
+            ref = "N/A"
+            remark = "Not a git repo!"
         if repo.commits_ahead is None or repo.commits_behind is None:
             commits_ahead_behind = "N/A" + " " * (4 - len("N/A")) + "N/A"
         else:
@@ -231,10 +243,18 @@ def generate_table_for_status(repos: List["GitRepo"]) -> List[TableRow]:
                 + " " * (4 - len(str(repo.commits_ahead)))  # noqa: W503
                 + str(repo.commits_behind)  # noqa: W503
             )
+        if (
+            repo.ref_type == GitRefType.TAG
+            and repo.latest_tag is not None  # noqa: W503
+            and repo.latest_tag == repo.ref  # noqa: W503
+        ):
+            remark = "Latest tag"
+        elif repo.ref_type == GitRefType.TAG and repo.latest_tag is not None:
+            remark = f"Newer tag: {repo.latest_tag}"
         rows.append(
             TableRow(
                 style=STATUS_COLOR_MAPPING[repo.status],
-                data=[repo.name, ref, commits_ahead_behind],
+                data=[repo.name, ref, commits_ahead_behind, remark],
             )
         )
     return rows
@@ -314,8 +334,11 @@ def print_shell_command_output(repos: List["GitRepo"]) -> None:
     print(f"\n{Style.CYAN}CUSTOM SHELL COMMAND OUTPUT:{Style.RESET}\n")
     for repo in sorted(repos, key=lambda repo: repo.name):
         print(f"{Style.GREEN}{repo.name}{Style.RESET}")
-        print(f"{repo.custom_cmd_output}")
-        print(f"{Style.RED}{repo.custom_cmd_error}{Style.RESET}")
+        if repo.custom_cmd_output:
+            print(f"{repo.custom_cmd_output}")
+        if repo.custom_cmd_error:
+            print(f"{Style.RED}{repo.custom_cmd_error}{Style.RESET}")
+        print()
     print()
 
 
@@ -530,7 +553,7 @@ class GitDescribe(GitCommand):
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
         if returncode == 0:
             repo.ref_type = GitRefType.TAG
-            repo.ref = f"tags/{output}"
+            repo.ref = output
 
 
 class GitPull(GitCommand):
@@ -582,7 +605,9 @@ class GitLatestTag(GitCommand):
 
     @staticmethod
     def is_relevant(repo: "GitRepo") -> bool:
-        return True  # repo.has_remote?
+        return repo.has_remote is not False and (
+            repo.ref_type in [GitRefType.TAG, GitRefType.UNKNOWN]
+        )
 
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
@@ -711,7 +736,7 @@ class GitRepo:
         self.ref_type: GitRefType = GitRefType.UNKNOWN
         self.has_remote: Optional[bool] = None
         self.has_upstream: Optional[bool] = None
-        self.is_clean: bool = False
+        self.is_clean: bool = False  # fix it
         self.commits_ahead: Optional[int] = None
         self.commits_behind: Optional[int] = None
         self.gone_branches: Optional[List[str]] = None
@@ -727,6 +752,8 @@ class GitRepo:
             return Status.CRITICAL
         elif self.commits_behind is not None and self.commits_behind > 0:
             return Status.CRITICAL
+        elif self.ref_type == GitRefType.TAG and self.latest_tag == self.ref:
+            return Status.OK
         elif (
             not self.has_upstream
             or not self.has_remote  # noqa: W503 # fix checkout
