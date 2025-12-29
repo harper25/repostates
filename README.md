@@ -19,6 +19,8 @@ The purpose of the tool is to **manage multiple repositories**, in particular ru
 ## Example
 
 > Disclaimer: Presented example is not a real microservice project. Funny branch names and commit messages were invented just for the sake of repostates demo :)
+>
+> Side quest: How many examples of bad practices do you notice? :)
 
 ### Show status of multiple git repositories (default)
 
@@ -60,6 +62,12 @@ repostates shell "sh -c 'git switch - || git switch - --detach'"
 ### Show already gone branches
 
 ![repostates_gone_branches](./images/screen_gone_branches.png)
+
+### Show merge state
+
+Helpful when touching multiple repositories to deliver a feature - what did I already merge and what is left?
+
+![repostates_merge_state](./images/screen_merge_state.png)
 
 ### Checkouts and pull
 
@@ -127,10 +135,11 @@ Then, the best option to run the tool is to clone the repository and:
 ```bash
 $ repostates --help
 
-usage: repostates.py [-h] [-d [DIR]] [-r REG] [--verbose] [--no-fetch] {status,pull,show-default-branch,show-latest-tag,checkout,checkout-default,checkout-latest-tag,gone-branches,shell} ...
+usage: repostates.py [-h] [-d [DIR]] [-r REG] [--verbose] [--no-fetch]
+                     {status,pull,show-default-branch,show-latest-tag,checkout,checkout-default,checkout-latest-tag,gone-branches,shell,merge-state} ...
 
 positional arguments:
-  {status,pull,show-default-branch,show-latest-tag,checkout,checkout-default,checkout-latest-tag,gone-branches,shell}
+  {status,pull,show-default-branch,show-latest-tag,checkout,checkout-default,checkout-latest-tag,gone-branches,shell,merge-state}
                         choose a command to run
     status              run git status (default)
     pull                run git pull
@@ -143,12 +152,12 @@ positional arguments:
                         checkout to latest tag
     gone-branches       find already gone branches, default action is list
     shell               run arbitrary shell command - enclose in quotes
+    merge-state         check if you need to merge/rebase your feature branch with respect to default branch
 
 options:
   -h, --help            show this help message and exit
-  -d [DIR], --dir [DIR]
-                        directory with your git repositories, defaults to the current directory
-  -r REG, --reg REG     regex for filtering repositories to show
+  -d, --dir [DIR]       directory with your git repositories, defaults to the current directory
+  -r, --reg REG         regex for filtering repositories to show
   --verbose, -v         increase verbosity
   --no-fetch, -n        do not fetch before status
 ```

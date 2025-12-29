@@ -130,3 +130,14 @@ dmypy.json
 
 # Poetry
 poetry.toml
+
+# MacOS
+.DS_Store
+
+# VSCode
+.vscode
+
+# Custom
+TODO.md
+debug_*
+tool*
