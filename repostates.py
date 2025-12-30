@@ -83,6 +83,11 @@ def create_arg_parser() -> argparse.ArgumentParser:
     parser_shell.add_argument(
         "custom_command", help="custom shell command to run - remember about quotes"
     )
+    parser_merge_state = subparsers.add_parser(  # noqa: F841
+        "merge-state",
+        help="check if you need to merge/rebase your feature branch "
+        "with respect to default branch",
+    )
     parser.set_defaults(command="status")
 
     return parser
@@ -110,6 +115,7 @@ def get_cli_arguments(
 
 def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:  # noqa: C901
     if flow_args["command"] == "status" and flow_args["no_fetch"]:
+        # dedicated mainly for tests
         return [GitStatusBranch(), GitDescribe()]
     elif flow_args["command"] == "status":
         return [GitFetchPrune(), GitStatusBranch(), GitDescribe(), GitLatestTag()]
@@ -152,7 +158,16 @@ def generate_git_pipeline(flow_args: Dict[str, str]) -> List["GitCommand"]:  # n
         return [GitFetchPrune(), GitGoneBranches()]
     elif flow_args["command"] == "shell":
         return [CustomCommand(custom_command=flow_args["custom_command"])]
-
+    elif flow_args["command"] == "merge-state":
+        return [
+            GitFetchPrune(),
+            GitStatusBranch(),
+            GitDescribe(),
+            GitLatestTag(),
+            GitDefaultBranch(),
+            GitCommitsStateToDefaultBranch(),
+            GitGoneBranches(),
+        ]
     return [GitFetchPrune(), GitStatusBranch(), GitDescribe(), GitLatestTag()]
 
 
@@ -190,6 +205,9 @@ def main() -> None:
         print_table(table)
     elif flow_args["command"] == "shell":
         print_shell_command_output(repos)
+    elif flow_args["command"] == "merge-state":
+        table = generate_table_for_merge_state(repos)
+        print_table(table)
     else:
         table = generate_table_for_status(repos)
         print_table(table)
@@ -255,6 +273,83 @@ def generate_table_for_status(repos: List["GitRepo"]) -> List[TableRow]:
             TableRow(
                 style=STATUS_COLOR_MAPPING[repo.status],
                 data=[repo.name, ref, commits_ahead_behind, remark],
+            )
+        )
+    return rows
+
+
+def generate_table_for_merge_state(  # noqa: C901
+    repos: List["GitRepo"],
+) -> List[TableRow]:
+    rows = [
+        TableRow(
+            style=f"{Style.BLUE}",
+            data=[
+                "REPOSITORY",
+                "CURRENT LOCAL REF",
+                "COMPARED TO",
+                "COMMITS",
+                "REMARKS",
+            ],
+        ),
+        TableRow(
+            style=f"{Style.BLUE}{Style.UNDERLINE}",
+            data=["", "", "REMOTE", "AHEAD/BEHIND", ""],
+        ),
+    ]
+    for repo in sorted(repos, key=lambda repo: repo.name):
+        remark = ""
+        if repo.ref:
+            ref = repo.ref
+            if repo.ref_type == GitRefType.TAG:
+                ref = "tags/" + ref
+            if repo.is_clean is False:
+                ref = "*" + ref
+            if repo.has_remote is False:
+                remark = "No remote!"
+        else:
+            ref = "N/A"
+            remark = "Not a git repo!"
+        if repo.commits_ahead is None or repo.commits_behind is None:
+            commits_ahead_behind = "N/A" + " " * (4 - len("N/A")) + "N/A"
+        else:
+            commits_ahead_behind = (
+                str(repo.commits_ahead)
+                + " " * (4 - len(str(repo.commits_ahead)))  # noqa: W503
+                + str(repo.commits_behind)  # noqa: W503
+            )
+            # what about tags?
+            if repo.ref_type == GitRefType.BRANCH and repo.ref == repo.default_branch:
+                remark = ""
+            elif repo.commits_ahead == 0 and repo.commits_behind == 0:
+                remark = "Up to date with default branch"
+            elif repo.ref_type == GitRefType.BRANCH and repo.is_current_branch_gone:
+                if repo.commits_behind > 0 and repo.commits_ahead == 0:
+                    remark = "Branch gone but most probably merged!"
+                elif repo.commits_ahead > 0:
+                    remark = "Branch gone, most probably not merged!"
+            elif repo.commits_behind > 0:
+                remark = "Remember to rebase from default branch!"
+            elif repo.commits_ahead > 0:
+                remark = "Active development!"
+        if (
+            repo.ref_type == GitRefType.TAG
+            and repo.latest_tag is not None  # noqa: W503
+            and repo.latest_tag == repo.ref  # noqa: W503
+        ):
+            remark = "Latest tag"
+        elif repo.ref_type == GitRefType.TAG and repo.latest_tag is not None:
+            remark = f"Newer tag: {repo.latest_tag}"
+        rows.append(
+            TableRow(
+                style=STATUS_COLOR_MAPPING[repo.status],
+                data=[
+                    repo.name,
+                    ref,
+                    repo.default_branch or "",
+                    commits_ahead_behind,
+                    remark,
+                ],
             )
         )
     return rows
@@ -688,14 +783,16 @@ class GitGoneBranches(GitCommand):
     @staticmethod
     def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
         if returncode != 0:
-            repo.gone_branches = []
+            # repo.gone_branches = []
             return
 
-        repo.gone_branches = [
-            branch.split()[0]
-            for branch in output.split("\n")
-            if "gone]" in branch and not branch.startswith("*")
-        ]
+        repo.gone_branches = []
+        for branch in output.split("\n"):
+            if "gone]" in branch:
+                if not branch.startswith("*"):
+                    repo.gone_branches.append(branch.split()[0])
+                else:
+                    repo.is_current_branch_gone = True
 
 
 class CustomCommand(GitCommand):  # fix inheritance
@@ -717,6 +814,41 @@ class CustomCommand(GitCommand):  # fix inheritance
         repo.custom_cmd_return_code = returncode
         repo.custom_cmd_output = output
         repo.custom_cmd_error = error
+
+
+# check if the branch was already merged to default
+# what about branch just merged?
+# https://betterstack.com/community/questions/how-to-know-if-branch-has-been-already-merged/#3-using-git-merge-base  # noqa: E501
+class GitCommitsStateToDefaultBranch(GitCommand):
+    message = "Getting commits state with respect to default branch..."
+
+    def setup_process(self, repo: "GitRepo") -> subprocess.Popen:
+        self.commits_ahead = None
+        self.commits_behind = None  # why not?
+        command_args = [
+            "git",
+            "rev-list",
+            "--left-right",
+            "--count",
+            f"{repo.ref}...origin/{repo.default_branch}",
+        ]
+        return self.popen_process(command_args, path=repo.fullpath)
+
+    @staticmethod
+    def is_relevant(repo: "GitRepo") -> bool:
+        # return repo.has_remote and repo.default_branch and \
+        # repo.ref_type == GitRefType.BRANCH
+        return repo.has_remote is True and repo.default_branch is not None
+
+    @staticmethod
+    def handle_output(repo: "GitRepo", returncode: int, output: str, error: str) -> None:
+        if returncode != 0:
+            repo.commits_ahead = None
+            repo.commits_behind = None
+            return
+        ahead, behind = output.split()
+        repo.commits_ahead = int(ahead)
+        repo.commits_behind = int(behind)
 
 
 class GitRefType(Enum):
@@ -745,6 +877,7 @@ class GitRepo:
         self.custom_cmd_error: Optional[str] = None
         self.default_branch: Optional[str] = None
         self.latest_tag: Optional[str] = None
+        self.is_current_branch_gone: Optional[bool] = None
 
     @property
     def status(self) -> "Status":
@@ -774,12 +907,15 @@ class GitRepo:
         return self.__dict__ == other.__dict__
 
 
+# https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
+# https://jakob-bagterp.github.io/colorist-for-python/
 class Style:
     BLACK = "\033[30m"
     RED = "\033[31m"
     GREEN = "\033[32m"
     YELLOW = "\033[33m"
-    BLUE = "\033[34m"
+    # BLUE = "\033[34m"
+    BLUE = "\033[94m"
     MAGENTA = "\033[35m"
     CYAN = "\033[36m"
     WHITE = "\033[37m"

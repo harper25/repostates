@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "microservices-git-state"
-version = "2.3.0"
+version = "2.4.0"
 description = ""
 authors = ["harper25 <olesjakubb@gmail.com>"]
 license = "MIT"
