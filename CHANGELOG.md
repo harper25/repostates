@@ -1,5 +1,12 @@
 # Changelog
 
+# [2.4.0](https://github.com/harper25/repostates/compare/2.3.0...2.4.0) (2025-12-30)
+
+
+### Features
+
+* add merge-state command ([2c35a1b](https://github.com/harper25/repostates/commit/2c35a1b08247cae4d2425d3378d9ab7039e1a5a6))
+
 # [2.3.0](https://github.com/harper25/repostates/compare/2.2.0...2.3.0) (2025-03-02)
 
 
